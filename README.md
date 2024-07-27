@@ -1,7 +1,6 @@
 # fakesvc
 
 [![License: MIT](https://img.shields.io/badge/License-MIT%202.0-blue.svg)](https://github.com/sergkondr/fake-web-service/blob/main/LICENSE)
-[//]: # ([![GitHub release]&#40;https://img.shields.io/github/release/sergkondr/fake-web-service.svg&#41;]&#40;https://github.com/sergkondr/fake-web-service/releases/latest&#41;)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sergkondr/fake-web-service)](https://goreportcard.com/report/github.com/sergkondr/fake-web-service)
 
 This simple web service is made for testing purposes. 
