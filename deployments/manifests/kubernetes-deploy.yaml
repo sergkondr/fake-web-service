@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fakesvc-config
+data:
+  config.yaml: |
+    listen: 0.0.0.0:8080
+
+    endpoints:
+      - name: Good endpoint
+        description: Fast enough, no errors at all
+        path: /good
+        error_rate: 0.0
+        slowness:
+          min: 100ms
+          p95: 300ms
+          max: 1s
+      - name: Bad endpoint
+        description: 30% of requests fails with 500 error
+        path: /bad
+        error_rate: 0.3
+        slowness:
+          min: 300ms
+          p95: 3500ms
+          max: 5s
+      - name: Slow endpoint
+        description: Sometimes it fails, but it is always slow
+        path: /slow
+        error_rate: 0.1
+        slowness:
+          min: 1s
+          p95: 5s
+          max: 10s
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: fakesvc
+  name: fakesvc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fakesvc
+  template:
+    metadata:
+      labels:
+        app: fakesvc
+    spec:
+      containers:
+        - image: sergkondr/fakesvc:dev
+          imagePullPolicy: Always
+          name: fakesvc
+          command:
+            - /app/fakesvc
+          args:
+            - --debug
+            - --config
+            - /app/config.yaml
+          resources: {}
+          volumeMounts:
+            - name: fakesvc-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: fakesvc-config
+          configMap:
+            name: fakesvc-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fakesvc
+spec:
+  selector:
+    app: fakesvc
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fakeapp
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "fakesvc.my.lab"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fakesvc
+                port:
+                  number: 8080

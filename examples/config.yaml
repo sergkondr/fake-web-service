@@ -1,0 +1,27 @@
+listen: 0.0.0.0:8080
+
+endpoints:
+  - name: Good endpoint
+    description: Fast enough, no errors at all
+    path: /good
+    error_rate: 0.0
+    slowness:
+      min: 100ms
+      p95: 300ms
+      max: 1s
+  - name: Bad endpoint
+    description: 30% of requests fails with 500 error
+    path: /bad
+    error_rate: 0.3
+    slowness:
+      min: 300ms
+      p95: 3500ms
+      max: 5s
+  - name: Slow endpoint
+    description: Sometimes it fails, but it is always slow
+    path: /slow
+    error_rate: 0.1
+    slowness:
+      min: 1s
+      p95: 5s
+      max: 10s
