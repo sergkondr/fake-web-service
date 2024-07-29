@@ -1,4 +1,4 @@
-# fakesvc
+# fake-web-service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT%202.0-blue.svg)](https://github.com/sergkondr/fake-web-service/blob/main/LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sergkondr/fake-web-service)](https://goreportcard.com/report/github.com/sergkondr/fake-web-service)
@@ -17,30 +17,17 @@ kubectl apply -f deployments/manifests/kubernetes-deploy.yaml
 ### Usage
 
 ```shell
-➜ curl fakesvc.my.lab/
+➜ curl localhost:8080/
 Available endpoints:
 - /good - Good endpoint: Fast enough, no errors at all
 - /bad - Bad endpoint: 30% of requests fails with 500 error
 - /slow - Slow endpoint: Sometimes it fails, but it is always slow
 
-➜ curl fakesvc.my.lab/slow -v
-* Host fakesvc.my.lab:80 was resolved.
-* IPv6: (none)
-* IPv4: 127.0.0.1
-*   Trying 127.0.0.1:80...
-* Connected to fakesvc.my.lab (127.0.0.1) port 80
-> GET /slow HTTP/1.1
-> Host: fakesvc.my.lab
-> User-Agent: curl/8.6.0
-> Accept: */*
->
-< HTTP/1.1 500 Internal Server Error
-< Date: Sat, 27 Jul 2024 19:33:11 GMT
-< Content-Type: text/plain; charset=utf-8
-< Content-Length: 27
-< Connection: keep-alive
-<
-* Connection #0 to host fakesvc.my.lab left intact
-sorry, something went wrong
+➜ time curl localhost:8080/good
+success: /good
+curl localhost:8080/good  0.00s user 0.01s system 4% cpu 0.230 total
 
+➜ time curl localhost:8080/slow
+success: /slow
+curl localhost:8080/slow  0.01s user 0.01s system 0% cpu 2.822 total
 ```

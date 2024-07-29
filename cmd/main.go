@@ -10,28 +10,32 @@ import (
 	"github.com/sergkondr/fake-web-service/internal/web"
 )
 
+var (
+	version               = "dev"
+	defaultConfigFilename = "config.yaml"
+)
+
 func main() {
 	debugMode := flag.Bool("debug", false, "debug mode")
-	configPath := flag.String("config", "config.yaml", "path to config file")
+	configPath := flag.String("config", defaultConfigFilename, "path to config file")
 	flag.Parse()
 
 	if *debugMode {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
-		slog.Debug("debug mode is on")
 	}
+	slog.Debug("debug mode is on")
+	slog.Debug("version: " + version)
 
 	cfg, err := config.Get(*configPath)
 	if err != nil {
 		slog.Error("error loading config: " + err.Error())
 		os.Exit(1)
 	}
-	slog.Debug("loaded config")
+	slog.Debug("config is loaded")
 
 	srv := web.New(cfg)
-
 	slog.Info("starting server")
-	err = http.ListenAndServe(cfg.ListenAddr, srv)
-	if err != nil {
-		slog.Error("error starting server", err)
+	if err = http.ListenAndServe(cfg.ListenAddr, srv); err != nil {
+		slog.Error("error starting server: " + err.Error())
 	}
 }

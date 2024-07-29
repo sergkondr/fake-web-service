@@ -5,9 +5,7 @@ metadata:
   name: fakesvc-config
 data:
   config.yaml: |
-    listen: 0.0.0.0:8080
-
-    endpoints:
+    http_endpoints:
       - name: Good endpoint
         description: Fast enough, no errors at all
         path: /good
@@ -24,10 +22,16 @@ data:
           min: 300ms
           p95: 3500ms
           max: 5s
-      - name: Slow endpoint
-        description: Sometimes it fails, but it is always slow
+      - name: Slow good endpoint
+        description: Always slow, but no errors
         path: /slow
-        error_rate: 0.1
+        error_rate: 0.0
+        slowness:
+          min: 1s
+          p95: 5s
+          max: 10s
+      - path: /your-service
+        error_rate: 0.5
         slowness:
           min: 1s
           p95: 5s
@@ -59,7 +63,19 @@ spec:
             - --debug
             - --config
             - /app/config.yaml
-          resources: {}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 100Mi
+            limits:
+              cpu: 200m
+              memory: 200Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
           volumeMounts:
             - name: fakesvc-config
               mountPath: /app/config.yaml
