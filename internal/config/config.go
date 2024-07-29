@@ -11,22 +11,28 @@ import (
 )
 
 type Config struct {
-	ListenAddr string     `yaml:"listen"`
-	Endpoints  []Endpoint `yaml:"endpoints"`
+	ListenAddr    string         `yaml:"listen"`
+	HTTPEndpoints []HTTPEndpoint `yaml:"http_endpoints"`
 }
 
-type Endpoint struct {
+type HTTPEndpoint struct {
 	Name        string `yaml:"name,omitempty"`
 	Description string `yaml:"description,omitempty"`
 
-	Path      string  `yaml:"path"`
-	ErrorRate float64 `yaml:"error_rate"`
-	Slowness  struct {
-		Min time.Duration `yaml:"min"`
-		Max time.Duration `yaml:"max"`
-		P95 time.Duration `yaml:"p95"`
-	} `yaml:"slowness"`
+	Path      string   `yaml:"path"`
+	ErrorRate float64  `yaml:"error_rate"`
+	Slowness  Slowness `yaml:"slowness"`
 }
+
+type Slowness struct {
+	Min time.Duration `yaml:"min"`
+	Max time.Duration `yaml:"max"`
+	P95 time.Duration `yaml:"p95"`
+}
+
+const (
+	defaultListenAddr = "0.0.0.0:8080"
+)
 
 func Get(path string) (Config, error) {
 	var config Config
@@ -46,7 +52,44 @@ func Get(path string) (Config, error) {
 		return config, fmt.Errorf("could not parse config file: %w", err)
 	}
 
-	slog.Debug("Endpoints:" + fmt.Sprintf("%+v", config.Endpoints))
+	if config.ListenAddr == "" {
+		config.ListenAddr = defaultListenAddr
+		slog.Info("using default listen address: " + config.ListenAddr)
+	}
+
+	if err = validateConfig(config); err != nil {
+		return config, fmt.Errorf("can't validate config: %w", err)
+	}
+
+	slog.Debug("HTTPEndpoints:" + fmt.Sprintf("%+v", config.HTTPEndpoints))
 
 	return config, nil
+}
+
+func validateConfig(cfg Config) error {
+	if len(cfg.HTTPEndpoints) == 0 {
+		return fmt.Errorf("no endpoints defined in the config")
+	}
+
+	paths := make(map[string]struct{}, len(cfg.HTTPEndpoints))
+	for _, ep := range cfg.HTTPEndpoints {
+		if ep.ErrorRate < 0 || ep.ErrorRate > 1 {
+			return fmt.Errorf("endpoint rate must be between 0.0 and 1.0 inclusive")
+		}
+
+		if _, ok := paths[ep.Path]; ok {
+			return fmt.Errorf("duplicate endpoint path: %s", ep.Path)
+		}
+		paths[ep.Path] = struct{}{}
+
+		if ep.Slowness.Min > ep.Slowness.Max || ep.Slowness.Min > ep.Slowness.P95 {
+			return fmt.Errorf("slowness min cannot be greater than max or p95")
+		}
+
+		if ep.Slowness.P95 > ep.Slowness.Max {
+			return fmt.Errorf("slowness p95 cannot be greater than max")
+		}
+	}
+
+	return nil
 }

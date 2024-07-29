@@ -13,3 +13,4 @@ docker:
 		--build-arg="APP_VERSION=${APP_VERSION}" \
 		--build-arg="APP_NAME=${APP_NAME}" \
 		-t sergkondr/${APP_NAME}:${APP_VERSION} .
+	docker push sergkondr/${APP_NAME}:${APP_VERSION}
