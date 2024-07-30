@@ -1,4 +1,3 @@
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,9 +10,9 @@ data:
         path: /good
         error_rate: 0.0
         slowness:
-          min: 100ms
-          p95: 300ms
-          max: 1s
+          min: 10ms
+          p95: 50ms
+          max: 100ms
       - name: Bad endpoint
         description: 30% of requests fails with 500 error
         path: /bad
@@ -36,6 +35,17 @@ data:
           min: 1s
           p95: 5s
           max: 10s
+      - name: Healthcheck
+        description: Fast and reliable
+        path: /healthz
+        hidden: true
+        do_not_log: true
+        error_rate: 0.0
+        slowness:
+          min: 10ms
+          p95: 20ms
+          max: 50ms
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,36 +64,43 @@ spec:
         app: fakesvc
     spec:
       containers:
-        - image: sergkondr/fakesvc:dev
-          imagePullPolicy: Always
-          name: fakesvc
-          command:
-            - /app/fakesvc
-          args:
-            - --debug
-            - --config
-            - /app/config.yaml
-          resources:
-            requests:
-              cpu: 100m
-              memory: 100Mi
-            limits:
-              cpu: 200m
-              memory: 200Mi
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65534
-            runAsGroup: 65534
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-          volumeMounts:
-            - name: fakesvc-config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
-      volumes:
+      - image: sergkondr/fakesvc:dev
+        imagePullPolicy: Always
+        name: fakesvc
+        command:
+        - /app/fakesvc
+        args:
+        - --debug
+        - --config
+        - /app/config.yaml
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 200m
+            memory: 200Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: /healthz
+        volumeMounts:
         - name: fakesvc-config
-          configMap:
-            name: fakesvc-config
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+      volumes:
+      - name: fakesvc-config
+        configMap:
+          name: fakesvc-config
 ---
 apiVersion: v1
 kind: Service
@@ -93,26 +110,24 @@ spec:
   selector:
     app: fakesvc
   ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 8080
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: fakeapp
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  name: fakesvc
 spec:
   ingressClassName: nginx
   rules:
-    - host: "fakesvc.my.lab"
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: fakesvc
-                port:
-                  number: 8080
+  - host: fakesvc.my.lab
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fakesvc
+            port:
+              number: 8080

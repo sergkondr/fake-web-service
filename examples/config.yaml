@@ -6,9 +6,9 @@ http_endpoints:
     path: /good
     error_rate: 0.0
     slowness:
-      min: 100ms
-      p95: 300ms
-      max: 1s
+      min: 10ms
+      p95: 50ms
+      max: 100ms
   - name: Bad endpoint
     description: 30% of requests fails with 500 error
     path: /bad
@@ -31,3 +31,13 @@ http_endpoints:
       min: 1s
       p95: 5s
       max: 10s
+  - name: Healthcheck
+    description: Fast and reliable
+    path: /healthz
+    hidden: true
+    do_not_log: true
+    error_rate: 0.0
+    slowness:
+      min: 10ms
+      p95: 20ms
+      max: 50ms

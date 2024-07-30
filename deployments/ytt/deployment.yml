@@ -1,0 +1,48 @@
+#@ load("@ytt:data", "data")
+#@ load("_helpers.lib.yml", "labels")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels: #@ labels()
+  name: #@ data.values.app
+spec:
+  replicas: #@ data.values.replicas
+  selector:
+    matchLabels: #@ labels()
+  template:
+    metadata:
+      labels: #@ labels()
+    spec:
+      containers:
+        - image: #@ data.values.image_name + ":" + data.values.image_version
+          imagePullPolicy: Always
+          name: fakesvc
+          command:
+            - /app/fakesvc
+          args:
+            - --debug
+            - --config
+            - /app/config.yaml
+          resources: #@ data.values.resources
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            tcpSocket:
+              port: #@ data.values.port
+          readinessProbe:
+            httpGet:
+              port: #@ data.values.port
+              path: /healthz
+          volumeMounts:
+            - name: fakesvc-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: fakesvc-config
+          configMap:
+            name: fakesvc-config

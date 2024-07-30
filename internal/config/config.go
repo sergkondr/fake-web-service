@@ -22,6 +22,9 @@ type HTTPEndpoint struct {
 	Path      string   `yaml:"path"`
 	ErrorRate float64  `yaml:"error_rate"`
 	Slowness  Slowness `yaml:"slowness"`
+
+	Hidden   bool `yaml:"hidden,omitempty"`
+	DoNotLog bool `yaml:"do_not_log,omitempty"`
 }
 
 type Slowness struct {
@@ -74,7 +77,7 @@ func validateConfig(cfg Config) error {
 	paths := make(map[string]struct{}, len(cfg.HTTPEndpoints))
 	for _, ep := range cfg.HTTPEndpoints {
 		if ep.ErrorRate < 0 || ep.ErrorRate > 1 {
-			return fmt.Errorf("endpoint rate must be between 0.0 and 1.0 inclusive")
+			return fmt.Errorf("endpoint error rate must be between 0.0 and 1.0 inclusive")
 		}
 
 		if _, ok := paths[ep.Path]; ok {
