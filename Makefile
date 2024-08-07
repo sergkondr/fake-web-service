@@ -17,8 +17,8 @@ build: test
 .PHONY: build
 
 docker:
-	docker build --build-arg="APP_VERSION=${APP_VERSION}" -t vebeer/${APP_NAME}:${APP_VERSION} .
-	docker push vebeer/${APP_NAME}:${APP_VERSION}
+	docker build --build-arg="APP_VERSION=${APP_VERSION}" -t sergkondr/${APP_NAME}:${APP_VERSION} .
+	docker push sergkondr/${APP_NAME}:${APP_VERSION}
 .PHONY: docker
 
 deploy:
