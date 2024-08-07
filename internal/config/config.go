@@ -73,7 +73,7 @@ func Get(path string) (Config, error) {
 		return config, fmt.Errorf("can't validate config: %w", err)
 	}
 
-	slog.Debug("HTTPEndpoints:" + fmt.Sprintf("%+v", config.HTTPEndpoints))
+	//slog.Debug("HTTPEndpoints:" + fmt.Sprintf("%+v", config.HTTPEndpoints))
 
 	return config, nil
 }

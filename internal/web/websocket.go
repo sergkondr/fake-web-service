@@ -1,14 +1,17 @@
 package web
 
 import (
-	"html/template"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{}
+const (
+	wsURLPreffix = "/ws"
+)
 
 type wsTemplateData struct {
 	EchoEndpoint string
@@ -16,324 +19,50 @@ type wsTemplateData struct {
 
 func newWSRoot(endpoint string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data := &wsTemplateData{EchoEndpoint: "/ws" + endpoint}
+		data := &wsTemplateData{EchoEndpoint: wsURLPreffix + endpoint}
 		wsIndexTemplate.Execute(w, data)
 	}
 }
 
-func wsHandlerEcho(w http.ResponseWriter, r *http.Request) {
-	c, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		slog.Error("upgrade: " + err.Error())
-		return
-	}
-	defer c.Close()
+func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
 
-	for {
-		mt, message, err := c.ReadMessage()
+		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			slog.Info("error while reading message:" + err.Error())
-			break
+			slog.Error("ws echo handler upgrade: " + err.Error())
+			return
 		}
+		defer c.Close()
 
-		slog.Info("WS message received", slog.String("message", string(message)))
-		err = c.WriteMessage(mt, message)
-		if err != nil {
-			slog.Info("error while writing message:" + err.Error())
-			break
+		for {
+			mt, message, err := c.ReadMessage()
+			if err != nil {
+				if strings.Contains(err.Error(), "websocket: close ") {
+					slog.Info("ws echo handler closed")
+					break
+				}
+
+				slog.Error("error while reading message",
+					slog.String("error", err.Error()),
+					slog.String("message", string(message)),
+					slog.Int("mt", mt))
+				break
+			}
+
+			slog.Debug("WS message received",
+				slog.String("endpoint", r.URL.Path),
+				slog.String("message", string(message)),
+				slog.String("sender", r.RemoteAddr))
+
+			err = c.WriteMessage(mt, []byte(
+				fmt.Sprintf(`{"backend":"%s", "host":"%s", "endpoint":"%s", "sender":"%s", "message":"%s"}`,
+					hostname, r.Host, r.URL.Path, r.RemoteAddr, message,
+				)))
+			if err != nil {
+				slog.Error("error while writing message:" + err.Error())
+				break
+			}
 		}
 	}
 }
-
-// copypasted from https://echo.websocket.org/.ws
-var wsIndexTemplate = template.Must(template.New("").Parse(`<html>
-<head>
-    <title>websocket</title>
-</head>
-<style>
-    #console {
-        font-family: monospace;
-        font-weight: bold;
-        line-height: 1.5em;
-        border-top: 1px dashed lightgray;
-    }
-
-    #console div {
-        border-bottom: 1px dashed lightgray;
-    }
-
-    #console div:before {
-        display: inline-block;
-        width: 5em;
-    }
-
-    #console div.send, div.recv {
-        font-weight: normal;
-        color: gray;
-    }
-
-    #console div.info:before {
-        color: black;
-        content: "[info]";
-    }
-
-    #console div.error:before {
-        color: red;
-        content: "[error]";
-    }
-
-    #console div.send:before {
-        color: blue;
-        content: "[send]";
-    }
-
-    #console div.recv:before {
-        color: green;
-        content: "[recv]";
-    }
-
-    .hidden {
-        display: none;
-    }
-
-    button {
-        border-radius: 0.3em;
-        border: 1px solid lightgray;
-        background: white;
-    }
-
-    #msg {
-        margin-top: 0.5em;
-        text-align: right;
-    }
-
-    #msg textarea {
-        text-align: left;
-        border-radius: 0.3em;
-        border: 1px solid lightgray;
-        width: 100%;
-        display: block;
-        min-height: 8em;
-        min-width: 20em;
-    }
-
-    #msg button {
-        margin-top: 0.5em;
-    }
-
-    #panel {
-        position: fixed;
-        top: 1em;
-        right: 1em;
-
-        border: 1px solid lightgray;
-        border-radius: 0.3em;
-        background: white;
-        padding: 0.5em;
-    }
-
-</style>
-<body>
-<div id="panel" />
-<div>
-    <button id="pause" class="hidden">Pause Messaging</button>
-    <button id="resume" class="hidden">Resume Messaging</button>
-    <button id="connect" class="hidden">Connect to Server</button>
-    <button id="disconnect" class="hidden">Disconnect from Server</button>
-    <button id="cancel" class="hidden">Cancel Connection Attempt</button>
-</div>
-<div id="msg" class="hidden">
-    <textarea id="content"></textarea>
-    <button id="send">Send Message</button>
-</div>
-</div>
-<div id="console" />
-<script>
-    var ws
-    var messageDelay = 1500
-    var connectDelay = 5000
-    var autoReconnect = true;
-
-    function log(text, classes) {
-        var node = document.createElement("div");
-        node.textContent = text;
-        node.className = classes
-        document.getElementById('console').appendChild(node);
-        window.scrollTo(0,document.body.scrollHeight);
-    }
-
-    var messageTimer = null
-    var connectTimer = null
-    var counter = 0
-
-    function send() {
-        var data = counter + ' = 0x' + counter.toString(16);
-        ws.send(data);
-        log(data, 'send');
-        counter++;
-        clearTimeout(messageTimer);
-        messageTimer = setTimeout(send, messageDelay);
-    }
-
-    function connect() {
-        log('attempting to connect', 'info')
-
-        autoReconnect = true;
-        msgPanel.className = 'hidden';
-        pauseBtn.className = 'hidden';
-        resumeBtn.className = 'hidden';
-        connectBtn.className = 'hidden';
-        disconnectBtn.className = 'hidden';
-        cancelBtn.className = '';
-
-        ws = new WebSocket(
-            location.protocol === 'https:'
-                ? 'wss://' + window.location.host + '{{ .EchoEndpoint }}'
-                : 'ws://' + window.location.host + '{{ .EchoEndpoint }}'
-        );
-
-        ws.onopen = function (ev) {
-            msgPanel.className = '';
-            pauseBtn.className = '';
-            resumeBtn.className = 'hidden';
-            connectBtn.className = 'hidden';
-            disconnectBtn.className = '';
-            cancelBtn.className = 'hidden';
-
-            console.log(ev);
-            log('connected', 'info');
-
-            clearTimeout(messageTimer);
-            messageTimer = setTimeout(send, messageDelay);
-
-            ws.onclose = function (ev) {
-                console.log(ev);
-                clearTimeout(messageTimer);
-                clearTimeout(connectTimer);
-
-                if (autoReconnect) {
-                    msgPanel.className = 'hidden';
-                    pauseBtn.className = 'hidden';
-                    resumeBtn.className = 'hidden';
-                    connectBtn.className = 'hidden';
-                    disconnectBtn.className = 'hidden';
-                    cancelBtn.className = '';
-
-                    log('disconnected, reconnecting in ' + (connectDelay / 1000) + ' seconds', 'info');
-                    connectTimer = setTimeout(connect, connectDelay);
-                } else {
-                    msgPanel.className = 'hidden';
-                    pauseBtn.className = 'hidden';
-                    resumeBtn.className = 'hidden';
-                    connectBtn.className = '';
-                    disconnectBtn.className = 'hidden';
-                    cancelBtn.className = 'hidden';
-
-                    log('disconnected', 'info');
-                }
-            }
-            ws.onerror = function (ev) {
-                console.log(ev);
-                log('an error occurred');
-            }
-        };
-        ws.onmessage = function (ev) {
-            console.log(ev);
-            log(ev.data, 'recv');
-        }
-        ws.onerror = function (ev) {
-            console.log(ev);
-            clearTimeout(messageTimer);
-            clearTimeout(connectTimer);
-
-            if (autoReconnect) {
-                msgPanel.className = 'hidden';
-                pauseBtn.className = 'hidden';
-                resumeBtn.className = 'hidden';
-                connectBtn.className = 'hidden';
-                disconnectBtn.className = 'hidden';
-                cancelBtn.className = '';
-
-                log('unable to connect, retrying in ' + (connectDelay / 1000) + ' seconds', 'error');
-                connectTimer = setTimeout(connect, connectDelay);
-            } else {
-                msgPanel.className = 'hidden';
-                pauseBtn.className = 'hidden';
-                resumeBtn.className = 'hidden';
-                connectBtn.className = '';
-                disconnectBtn.className = 'hidden';
-                cancelBtn.className = 'hidden';
-
-                log('unable to connect', 'error');
-                log('disconnected', 'info');
-            }
-        }
-    }
-
-    var pauseBtn = document.getElementById('pause');
-    pauseBtn.onclick = function () {
-        pauseBtn.className = 'hidden';
-        resumeBtn.className = '';
-        clearTimeout(messageTimer);
-        log('paused messages', 'info');
-    }
-
-    var resumeBtn = document.getElementById('resume');
-    resumeBtn.onclick = function () {
-        pauseBtn.className = '';
-        resumeBtn.className = 'hidden';
-        log('resumed messages', 'info');
-        send();
-    }
-
-    var connectBtn = document.getElementById('connect');
-    connectBtn.onclick = function () {
-        clearTimeout(connectTimer);
-        clearTimeout(messageTimer);
-        connect();
-    }
-
-    var disconnectBtn = document.getElementById('disconnect');
-    disconnectBtn.onclick = function () {
-        msgPanel.className = 'hidden';
-        pauseBtn.className = 'hidden';
-        resumeBtn.className = 'hidden';
-        connectBtn.className = '';
-        cancelBtn.className = 'hidden';
-        disconnectBtn.className = 'hidden';
-
-        autoReconnect = false;
-        ws.close();
-        clearTimeout(connectTimer);
-        clearTimeout(messageTimer);
-    }
-
-    var cancelBtn = document.getElementById('cancel');
-    cancelBtn.onclick = function () {
-        msgPanel.className = 'hidden';
-        pauseBtn.className = 'hidden';
-        resumeBtn.className = 'hidden';
-        connectBtn.className = '';
-        cancelBtn.className = 'hidden';
-        disconnectBtn.className = 'hidden';
-
-        log('cancelled connection attempt', 'info');
-        autoReconnect = false;
-        clearTimeout(connectTimer);
-        clearTimeout(messageTimer);
-    }
-
-    var msgPanel = document.getElementById('msg');
-    var msgContent = document.getElementById('content');
-    var sendBtn = document.getElementById('send');
-    sendBtn.onclick = function () {
-        ws.send(msgContent.value);
-        log(msgContent.value, 'send');
-    }
-
-    connect()
-</script>
-</body>
-</html>
-
-`))
