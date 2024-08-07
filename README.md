@@ -35,9 +35,17 @@ curl localhost:8080/slow  0.01s user 0.01s system 0% cpu 2.822 total
 
 ### Configuration
 
-Here is the example of the `config.yaml` file with all possible options: 
+[Here](./examples/config.yaml) you can find a config file I use for developer purposes. I suppose it the most detailed config possible.
+
+For now, config implements the following options:
 ```yaml
 listen: 127.0.0.1:8080  # optional, default value = 0.0.0.0:8080
+
+ws_endpoints:                     # only 1 ws endpoint is supported now
+  - name: echo                    # optional
+    description: WebSocket echo   # optional
+    path: /echo                   # required, but will be rewrited to /ws/{{ path }} 
+    type: echo                    # required, only "echo" is supported now
 
 http_endpoints:
   - name: Some endpoint             # optional, used in endpoint list on /
@@ -50,7 +58,4 @@ http_endpoints:
       min: 10ms                     # required, time duration, should be less than p95
       p95: 50ms                     # required, time duration, should be less than max
       max: 100ms                    # required, time duration
-
 ```
-
-[Here](./examples/config.yaml) you can find another example.
