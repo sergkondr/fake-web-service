@@ -34,14 +34,27 @@ func New(cfg config.Config) chi.Router {
 			r.Use(errorInjector(endpoint))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(fmt.Sprintf("success: %s/%s\n", hostname, endpoint.Path)))
+				w.Write([]byte(fmt.Sprintf("success: %s%s\n", hostname, endpoint.Path)))
 			})
 		})
+	}
+
+	if len(cfg.WSEndpoints) != 0 {
+		endpoints.WriteString("\n\n- /ws - WebSocket endpoint is available")
 	}
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(fmt.Sprintf("Available endpoints:\n%s\nHostname: %s\n", endpoints.String(), hostname)))
+	})
+
+	r.Route("/ws", func(r chi.Router) {
+		for _, endpoint := range cfg.WSEndpoints {
+			if endpoint.Type == "echo" {
+				r.HandleFunc(endpoint.Path, wsHandlerEcho)
+				r.HandleFunc("/", newWSRoot(endpoint.Path))
+			}
+		}
 	})
 
 	return r

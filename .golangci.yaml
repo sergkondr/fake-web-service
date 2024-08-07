@@ -1,0 +1,27 @@
+# More info on config here: https://github.com/golangci/golangci-lint#config-file
+linters:
+  disable-all: true
+  enable:
+    - gochecknoinits
+    - gofumpt
+    - goimports
+    - gosimple
+    - govet
+    - ineffassign
+    - makezero
+    - revive
+    - staticcheck
+    - typecheck
+    - unused
+    - whitespace
+
+linters-settings:
+  revive:
+    rules:
+      # annoying err: parameter 'r' seems to be unused in `r.Get("/", func(w http.ResponseWriter, r *http.Request)`
+      - name: var-naming
+        disabled: true
+
+run:
+  build-tags:
+    - integration

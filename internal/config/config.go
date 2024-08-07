@@ -13,6 +13,7 @@ import (
 type Config struct {
 	ListenAddr    string         `yaml:"listen"`
 	HTTPEndpoints []HTTPEndpoint `yaml:"http_endpoints"`
+	WSEndpoints   []WSEndpoint   `yaml:"ws_endpoints"`
 }
 
 type HTTPEndpoint struct {
@@ -31,6 +32,14 @@ type Slowness struct {
 	Min time.Duration `yaml:"min"`
 	Max time.Duration `yaml:"max"`
 	P95 time.Duration `yaml:"p95"`
+}
+
+type WSEndpoint struct {
+	Name        string `yaml:"name,omitempty"`
+	Description string `yaml:"description,omitempty"`
+
+	Path string `yaml:"path"`
+	Type string `yaml:"type"`
 }
 
 const (
@@ -91,6 +100,16 @@ func validateConfig(cfg Config) error {
 
 		if ep.Slowness.P95 > ep.Slowness.Max {
 			return fmt.Errorf("slowness p95 cannot be greater than max")
+		}
+	}
+
+	if len(cfg.WSEndpoints) > 1 {
+		return fmt.Errorf("only one websocket endpoint is supported now")
+	}
+
+	for _, ep := range cfg.WSEndpoints {
+		if ep.Type != "echo" {
+			return fmt.Errorf("only echo websocket endpoints are supported now")
 		}
 	}
 

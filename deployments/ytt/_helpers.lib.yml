@@ -1,3 +1,0 @@
-#@ load("@ytt:data", "data")
-#@ def/end labels():
-app: #@ data.values.app

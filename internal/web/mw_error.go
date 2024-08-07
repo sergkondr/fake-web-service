@@ -13,6 +13,7 @@ func errorInjector(cfg config.HTTPEndpoint) func(next http.Handler) http.Handler
 			errThreshold := 100 * cfg.ErrorRate
 			if float64(rand.Intn(100)) < errThreshold {
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+
 				return
 			}
 			next.ServeHTTP(w, r)

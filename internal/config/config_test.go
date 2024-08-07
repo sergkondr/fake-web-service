@@ -55,6 +55,27 @@ func Test_validateConfig(t *testing.T) {
 			}},
 			wantErr: true,
 		},
+		{
+			name: "invalid config, multiple ws endpoints",
+			cfg: Config{ListenAddr: ":8080", WSEndpoints: []WSEndpoint{
+				{
+					Path: "/echo", Type: "echo",
+				},
+				{
+					Path: "/random", Type: "random",
+				},
+			}},
+			wantErr: true,
+		},
+		{
+			name: "invalid config, unknown endpoint type",
+			cfg: Config{ListenAddr: ":8080", WSEndpoints: []WSEndpoint{
+				{
+					Path: "/echo", Type: "qwerty",
+				},
+			}},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

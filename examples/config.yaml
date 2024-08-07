@@ -1,5 +1,11 @@
 listen: 0.0.0.0:8080
 
+ws_endpoints:
+  - name: echo
+    description: Basic WebSocket echo endpoint
+    path: /echo
+    type: echo
+
 http_endpoints:
   - name: Good endpoint
     description: Fast enough, no errors at all
