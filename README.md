@@ -35,7 +35,7 @@ curl localhost:8080/slow  0.01s user 0.01s system 0% cpu 2.822 total
 
 ### Configuration
 
-[Here](./examples/config.yaml) you can find a config file I use for developer purposes. I suppose it the most detailed config possible.
+[Here](./examples/config.yaml) you can find the config file that I use for development purposes. I believe it is the most detailed configuration possible.
 
 For now, config implements the following options:
 ```yaml

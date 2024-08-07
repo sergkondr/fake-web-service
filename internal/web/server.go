@@ -48,10 +48,10 @@ func New(cfg config.Config) chi.Router {
 		w.Write([]byte(fmt.Sprintf("Available endpoints:\n%s\nHostname: %s\n", endpoints.String(), hostname)))
 	})
 
-	r.Route("/ws", func(r chi.Router) {
+	r.Route(wsURLPreffix, func(r chi.Router) {
 		for _, endpoint := range cfg.WSEndpoints {
 			if endpoint.Type == "echo" {
-				r.HandleFunc(endpoint.Path, wsHandlerEcho)
+				r.HandleFunc(endpoint.Path, wsHandlerEcho(hostname))
 				r.HandleFunc("/", newWSRoot(endpoint.Path))
 			}
 		}
