@@ -76,6 +76,30 @@ func Test_validateConfig(t *testing.T) {
 			}},
 			wantErr: true,
 		},
+		{
+			name: "invalid config, endpoint path overlaps metric path",
+			cfg: Config{
+				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/prometheusMetrics"},
+				HTTPEndpoints: []HTTPEndpoint{
+					{
+						Path: "/prometheusMetrics", ErrorRate: 10.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid config, monitoring enabled",
+			cfg: Config{
+				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/prometheusMetrics"},
+				HTTPEndpoints: []HTTPEndpoint{
+					{
+						Path: "/path", ErrorRate: 0.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

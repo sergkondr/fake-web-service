@@ -1,4 +1,7 @@
 listen: 0.0.0.0:8080
+metrics:
+  enabled: true
+  path: /metrics
 
 ws_endpoints:
   - name: echo
