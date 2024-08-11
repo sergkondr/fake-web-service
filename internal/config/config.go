@@ -11,9 +11,13 @@ import (
 )
 
 type Config struct {
+	Hostname string
+
 	ListenAddr    string         `yaml:"listen"`
 	HTTPEndpoints []HTTPEndpoint `yaml:"http_endpoints"`
 	WSEndpoints   []WSEndpoint   `yaml:"ws_endpoints"`
+
+	Metrics Metrics `yaml:"metrics,omitempty"`
 }
 
 type HTTPEndpoint struct {
@@ -42,12 +46,36 @@ type WSEndpoint struct {
 	Type string `yaml:"type"`
 }
 
+type Metrics struct {
+	Enabled bool   `yaml:"enabled,omitempty"`
+	Path    string `yaml:"path,omitempty"`
+}
+
 const (
 	defaultListenAddr = "0.0.0.0:8080"
+
+	defaultMetricsPath = "/metrics"
 )
 
 func Get(path string) (Config, error) {
+	config, err := parseFileConfig(path)
+	if err != nil {
+		return config, fmt.Errorf("could not parse config: %w", err)
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		slog.Error("could not get hostname:" + err.Error())
+		hostname = "unknown"
+	}
+	config.Hostname = hostname
+
+	return config, nil
+}
+
+func parseFileConfig(path string) (Config, error) {
 	var config Config
+
 	file, err := os.Open(path)
 	if err != nil {
 		return config, fmt.Errorf("could not open config file: %w", err)
@@ -69,11 +97,17 @@ func Get(path string) (Config, error) {
 		slog.Info("using default listen address: " + config.ListenAddr)
 	}
 
+	if config.Metrics.Enabled {
+		if config.Metrics.Path == "" {
+			config.Metrics.Path = defaultMetricsPath
+		}
+
+		slog.Info("metrics enabled")
+	}
+
 	if err = validateConfig(config); err != nil {
 		return config, fmt.Errorf("can't validate config: %w", err)
 	}
-
-	//slog.Debug("HTTPEndpoints:" + fmt.Sprintf("%+v", config.HTTPEndpoints))
 
 	return config, nil
 }
@@ -100,6 +134,10 @@ func validateConfig(cfg Config) error {
 
 		if ep.Slowness.P95 > ep.Slowness.Max {
 			return fmt.Errorf("slowness p95 cannot be greater than max")
+		}
+
+		if cfg.Metrics.Enabled && ep.Path == cfg.Metrics.Path {
+			return fmt.Errorf("endpoint path cannot be equal to metrics path")
 		}
 	}
 

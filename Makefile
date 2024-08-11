@@ -9,6 +9,7 @@ test:
 .PHONY: test
 
 lint:
+	-gofumpt -l -w .
 	golangci-lint run --show-stats ./...
 .PHONY: lint
 
