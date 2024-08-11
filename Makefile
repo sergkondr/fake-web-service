@@ -23,5 +23,5 @@ docker:
 .PHONY: docker
 
 deploy:
-	 cat deployments/manifests/kubernetes-deploy.yaml | kapp deploy --namespace ${APP_NAME} --app ${APP_NAME} --diff-changes --file -
+	 cat deployments/manifests/kubernetes-deploy.yaml | kapp deploy --namespace ${APP_NAME} --app ${APP_NAME} --diff-changes --yes --file -
 .PHONY: deploy
