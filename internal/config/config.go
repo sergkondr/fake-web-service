@@ -54,7 +54,8 @@ type Metrics struct {
 const (
 	defaultListenAddr = "0.0.0.0:8080"
 
-	defaultMetricsPath = "/metrics"
+	defaultMetricsPath     = "/metrics"
+	defaultHealthcheckPath = "/healthz"
 )
 
 func Get(path string) (Config, error) {
@@ -138,6 +139,10 @@ func validateConfig(cfg Config) error {
 
 		if cfg.Metrics.Enabled && ep.Path == cfg.Metrics.Path {
 			return fmt.Errorf("endpoint path cannot be equal to prometheus metrics path")
+		}
+
+		if ep.Path == defaultHealthcheckPath {
+			return fmt.Errorf("endpoint path overlaps with healthcheck path")
 		}
 	}
 
