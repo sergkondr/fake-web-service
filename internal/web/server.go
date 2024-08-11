@@ -6,22 +6,18 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sergkondr/fake-web-service/internal/config"
+	"github.com/sergkondr/fake-web-service/internal/prometheusMetrics"
 )
 
 func New(cfg config.Config) chi.Router {
 	r := chi.NewRouter()
 
-	prometheusMWHandler := dummyMWHandler
+	var prometheusMWHandler func(next http.Handler) http.Handler
 	if cfg.Metrics.Enabled {
-		promRegistry := prometheus.NewRegistry()
-		r.Handle(cfg.Metrics.Path, promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{
-			Registry: promRegistry,
-		}))
-		prometheusMWHandler = newPrometheusMetrics(promRegistry)
+		metrics := prometheusMetrics.New("fakesvc")
+		r.Handle(cfg.Metrics.Path, metrics.MetricsHandler())
+		prometheusMWHandler = metrics.MiddlewareHandler
 	}
 
 	var endpoints strings.Builder
@@ -30,7 +26,9 @@ func New(cfg config.Config) chi.Router {
 			if !endpoint.DoNotLog {
 				r.Use(logger())
 			}
-			r.Use(prometheusMWHandler) // if metrics are disabled, dummyMWHandler will be used
+			if cfg.Metrics.Enabled {
+				r.Use(prometheusMWHandler)
+			}
 			r.Use(decelerator(endpoint))
 			r.Use(errorInjector(endpoint))
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
@@ -62,13 +60,4 @@ func New(cfg config.Config) chi.Router {
 	})
 
 	return r
-}
-
-func dummyMWHandler(next http.Handler) http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		next.ServeHTTP(ww, r)
-	}
-
-	return http.HandlerFunc(fn)
 }

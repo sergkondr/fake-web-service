@@ -5,7 +5,7 @@ APP_VERSION := dev
 
 test:
 	go vet ./...
-	go test -v ./...
+	go test -v ./... -count=1
 .PHONY: test
 
 lint:

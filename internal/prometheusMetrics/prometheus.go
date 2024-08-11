@@ -1,4 +1,4 @@
-package web
+package prometheusMetrics
 
 import (
 	"net/http"
@@ -8,46 +8,46 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const (
-	defaultNamespace = "fakesvc"
-)
-
-type prometheusMW struct {
-	registry prometheus.Registerer
+type MetricsServer struct {
+	Registry *prometheus.Registry
 
 	requestDuration *prometheus.HistogramVec
 	requestsTotal   *prometheus.CounterVec
 }
 
-func newPrometheusMetrics(reg prometheus.Registerer) func(next http.Handler) http.Handler {
-	m := prometheusMW{
-		registry: reg,
+func New(metricsNamespace string) MetricsServer {
+	m := MetricsServer{
+		Registry: prometheus.NewRegistry(),
 	}
 
-	m.requestDuration = promauto.With(m.registry).NewHistogramVec(
+	m.requestDuration = promauto.With(m.Registry).NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: defaultNamespace,
+			Namespace: metricsNamespace,
 			Name:      "response_time_seconds",
 			Help:      "Histogram of response time in seconds aggregated by uri, method and status code",
 			Buckets:   []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 		},
 		[]string{"uri", "method", "status_code"})
 
-	m.requestsTotal = promauto.With(m.registry).NewCounterVec(
+	m.requestsTotal = promauto.With(m.Registry).NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: defaultNamespace,
+			Namespace: metricsNamespace,
 			Name:      "request_count",
 			Help:      "How many HTTP requests processed, aggregated by uri, method and status code",
 		},
 		[]string{"uri", "method", "status_code"},
 	)
 
-	return m.handler
+	return m
 }
 
-func (m *prometheusMW) handler(next http.Handler) http.Handler {
+// MiddlewareHandler takes an http.Handler as input and returns an http.Handler.
+// It wraps the provided handler with additional functionality to measure request
+// duration and increment request counters for Prometheus metrics.
+func (m *MetricsServer) MiddlewareHandler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -59,4 +59,11 @@ func (m *prometheusMW) handler(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(fn)
+}
+
+// MetricsHandler returns an http.Handler that handles requests to metrics gathering endpoint.
+func (m *MetricsServer) MetricsHandler() http.Handler {
+	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{
+		Registry: m.Registry,
+	})
 }

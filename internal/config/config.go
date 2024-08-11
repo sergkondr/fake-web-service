@@ -17,7 +17,7 @@ type Config struct {
 	HTTPEndpoints []HTTPEndpoint `yaml:"http_endpoints"`
 	WSEndpoints   []WSEndpoint   `yaml:"ws_endpoints"`
 
-	Metrics Metrics `yaml:"metrics,omitempty"`
+	Metrics Metrics `yaml:"prometheusMetrics,omitempty"`
 }
 
 type HTTPEndpoint struct {
@@ -54,7 +54,7 @@ type Metrics struct {
 const (
 	defaultListenAddr = "0.0.0.0:8080"
 
-	defaultMetricsPath = "/metrics"
+	defaultMetricsPath = "/prometheusMetrics"
 )
 
 func Get(path string) (Config, error) {
@@ -102,7 +102,7 @@ func parseFileConfig(path string) (Config, error) {
 			config.Metrics.Path = defaultMetricsPath
 		}
 
-		slog.Info("metrics enabled")
+		slog.Info("prometheusMetrics enabled")
 	}
 
 	if err = validateConfig(config); err != nil {
@@ -137,7 +137,7 @@ func validateConfig(cfg Config) error {
 		}
 
 		if cfg.Metrics.Enabled && ep.Path == cfg.Metrics.Path {
-			return fmt.Errorf("endpoint path cannot be equal to metrics path")
+			return fmt.Errorf("endpoint path cannot be equal to prometheusMetrics path")
 		}
 	}
 

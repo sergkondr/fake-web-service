@@ -79,10 +79,10 @@ func Test_validateConfig(t *testing.T) {
 		{
 			name: "invalid config, endpoint path overlaps metric path",
 			cfg: Config{
-				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/metrics"},
+				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/prometheusMetrics"},
 				HTTPEndpoints: []HTTPEndpoint{
 					{
-						Path: "/metrics", ErrorRate: 10.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
+						Path: "/prometheusMetrics", ErrorRate: 10.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
 					},
 				},
 			},
@@ -91,7 +91,7 @@ func Test_validateConfig(t *testing.T) {
 		{
 			name: "valid config, monitoring enabled",
 			cfg: Config{
-				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/metrics"},
+				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/prometheusMetrics"},
 				HTTPEndpoints: []HTTPEndpoint{
 					{
 						Path: "/path", ErrorRate: 0.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},

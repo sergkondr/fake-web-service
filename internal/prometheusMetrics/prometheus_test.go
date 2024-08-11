@@ -1,4 +1,4 @@
-package web
+package prometheusMetrics
 
 import (
 	"net/http"
@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func Test_prometheusMW_handler(t *testing.T) {
@@ -44,14 +42,13 @@ func Test_prometheusMW_handler(t *testing.T) {
 		},
 	}
 
-	promRegistry := prometheus.NewRegistry()
-	prometheusHandler := newPrometheusMetrics(promRegistry)
+	prom := New("fakesvc")
 
 	r := chi.NewRouter()
-	r.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{Registry: promRegistry}))
+	r.Handle("/metrics", prom.MetricsHandler())
 
 	r.Route("/", func(r chi.Router) {
-		r.Use(prometheusHandler)
+		r.Use(prom.MiddlewareHandler)
 		r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("Test"))
