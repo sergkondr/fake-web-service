@@ -45,16 +45,6 @@ data:
           min: 1s
           p95: 5s
           max: 10s
-      - name: Healthcheck
-        description: Fast and reliable
-        path: /healthz
-        hidden: true
-        do_not_log: true
-        error_rate: 0.0
-        slowness:
-          min: 10ms
-          p95: 20ms
-          max: 50ms
 
 ---
 apiVersion: apps/v1

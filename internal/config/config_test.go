@@ -100,7 +100,19 @@ func Test_validateConfig(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "invalid config, overlap with healthcheck path",
+			cfg: Config{
+				ListenAddr: ":8080", HTTPEndpoints: []HTTPEndpoint{
+					{
+						Path: "/healthz", ErrorRate: 0.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
+					},
+				},
+			},
+			wantErr: true,
+		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := validateConfig(tt.cfg); (err != nil) != tt.wantErr {

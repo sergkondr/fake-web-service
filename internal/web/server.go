@@ -59,5 +59,10 @@ func New(cfg config.Config) chi.Router {
 		}
 	})
 
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
 	return r
 }
