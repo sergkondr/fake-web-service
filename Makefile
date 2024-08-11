@@ -3,13 +3,13 @@
 APP_NAME := fakesvc
 APP_VERSION := dev
 
-test:
+test: lint
 	go vet ./...
 	go test -v ./... -count=1
 .PHONY: test
 
 lint:
-	-gofumpt -l -w .
+	gofumpt -l -w .
 	golangci-lint run --show-stats ./...
 .PHONY: lint
 

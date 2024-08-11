@@ -30,7 +30,7 @@ func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
 
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			slog.Error("ws echo handler upgrade: " + err.Error())
+			slog.Error("websocket echo handler upgrade: " + err.Error())
 			return
 		}
 		defer c.Close()
@@ -39,18 +39,18 @@ func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
 			mt, message, err := c.ReadMessage()
 			if err != nil {
 				if strings.Contains(err.Error(), "websocket: close ") {
-					slog.Info("ws echo handler closed")
+					slog.Info("websocket echo handler closed")
 					break
 				}
 
-				slog.Error("error while reading message",
+				slog.Error("error while reading websocket message",
 					slog.String("error", err.Error()),
 					slog.String("message", string(message)),
 					slog.Int("mt", mt))
 				break
 			}
 
-			slog.Debug("WS message received",
+			slog.Debug("websocket message received",
 				slog.String("endpoint", r.URL.Path),
 				slog.String("message", string(message)),
 				slog.String("sender", r.RemoteAddr))
