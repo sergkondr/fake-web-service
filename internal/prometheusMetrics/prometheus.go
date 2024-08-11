@@ -1,6 +1,7 @@
 package prometheusMetrics
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -40,6 +41,8 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"uri", "method", "status_code"},
 	)
+
+	slog.Debug("prometheus metrics server initialized")
 
 	return m
 }

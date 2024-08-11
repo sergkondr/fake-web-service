@@ -4,6 +4,16 @@ metadata:
   name: fakesvc-config
 data:
   config.yaml: |
+    metrics:
+      enabled: true
+      path: /metrics
+    
+    ws_endpoints:
+      - name: echo
+        description: Basic WebSocket echo endpoint
+        path: /echo
+        type: echo
+    
     http_endpoints:
       - name: Good endpoint
         description: Fast enough, no errors at all
@@ -54,12 +64,16 @@ metadata:
     app: fakesvc
   name: fakesvc
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: fakesvc
   template:
     metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
       labels:
         app: fakesvc
     spec:
