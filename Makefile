@@ -1,7 +1,7 @@
 .DEFAULT_GOAL = test
 
 APP_NAME := fakesvc
-APP_VERSION := dev
+APP_VERSION := 0.1.0
 
 test: lint
 	go vet ./...
@@ -18,8 +18,7 @@ build: test
 .PHONY: build
 
 docker:
-	docker build --build-arg="APP_VERSION=${APP_VERSION}" -t sergkondr/${APP_NAME}:${APP_VERSION} .
-	docker push sergkondr/${APP_NAME}:${APP_VERSION}
+	docker buildx build --push --no-cache --platform=linux/amd64,linux/arm64,linux/arm/v7 -t sergkondr/${APP_NAME}:${APP_VERSION} .
 .PHONY: docker
 
 deploy:
