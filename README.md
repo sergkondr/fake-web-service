@@ -1,6 +1,7 @@
 # fake-web-service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT%202.0-blue.svg)](https://github.com/sergkondr/fake-web-service/blob/main/LICENSE)
+[![GitHub release](https://img.shields.io/github/release/sergkondr/fake-web-service.svg)](https://github.com/sergkondr/fake-web-service/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/sergkondr/fake-web-service)](https://goreportcard.com/report/github.com/sergkondr/fake-web-service)
 [![Pulls](https://img.shields.io/docker/pulls/sergkondr/fakesvc.svg)](https://hub.docker.com/r/sergkondr/fakesvc)
 [![Go](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml/badge.svg)](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml)
@@ -14,6 +15,11 @@ with different delays. You can configure the endpoints, the delays, and the erro
 ```
 kubectl apply -f deployments/manifests/kubernetes-deploy.yaml
 ```
+
+###### Pay attention
+
+For development and testing purposes, I use docker images with the `dev` tag. 
+But I also publish images with tag matching the release version, like `0.1.0`. You can find the full list of tags [on Docker Hub](https://hub.docker.com/r/sergkondr/fakesvc/tags)
 
 ### Usage
 
