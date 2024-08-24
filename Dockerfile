@@ -6,10 +6,10 @@ ARG TARGETARCH
 COPY . /app
 WORKDIR /app
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH CGO_ENABLED=0 \
-    go build -ldflags="-X 'main.version=${APP_VERSION}'" \
+    go build -ldflags="-s -w -X 'main.version=${APP_VERSION}'" \
     -o fakesvc /app/cmd/
 
-FROM alpine:3.20
+FROM gcr.io/distroless/static-debian12:nonroot
 
 USER nobody
 EXPOSE 8080

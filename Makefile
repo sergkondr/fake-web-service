@@ -1,7 +1,7 @@
 .DEFAULT_GOAL = test
 
 APP_NAME := fakesvc
-APP_VERSION := 0.1.0
+APP_VERSION := dev
 
 test: lint
 	go vet ./...
@@ -14,7 +14,7 @@ lint:
 .PHONY: lint
 
 build: test
-	go build -ldflags="-X 'main.version=${APP_VERSION}'" -o ${APP_NAME} ./cmd/
+	go build -ldflags="-X 'main.version=${APP_VERSION}'" -o ./bin/${APP_NAME} ./cmd/
 .PHONY: build
 
 docker:
