@@ -2,95 +2,108 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT%202.0-blue.svg)](https://github.com/sergkondr/fake-web-service/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/sergkondr/fake-web-service.svg)](https://github.com/sergkondr/fake-web-service/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/sergkondr/fake-web-service)](https://goreportcard.com/report/github.com/sergkondr/fake-web-service)
-[![Pulls](https://img.shields.io/docker/pulls/sergkondr/fakesvc.svg)](https://hub.docker.com/r/sergkondr/fakesvc)
 [![Go](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml/badge.svg)](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml)
 
-This simple web service is made for testing purposes. 
-It has different endpoints that return various results, either a successful response or an error, 
-with different delays. You can configure the endpoints, the delays, and the error rate for each endpoint independently.  
+`fake-web-service` is a configurable service for HTTP and WebSocket testing. It can return static HTTP responses, echo and stream WebSocket messages, or proxy an upstream service while injecting latency and errors.
 
-### Deploy
+## Run
 
+Go 1.25 or newer is required.
+
+```shell
+go run ./cmd --config examples/config.yaml
+curl http://localhost:8080/
 ```
+
+The process exits with a non-zero status if the configuration cannot be loaded or the server cannot listen on the configured address. `SIGINT` and `SIGTERM` stop it gracefully; in-flight requests have up to 10 seconds to finish.
+
+Run the supplied development configuration in Docker:
+
+```shell
+docker compose up --build
+```
+
+Deploy the Kubernetes example after replacing its image tag with the version you want to run:
+
+```shell
 kubectl apply -f deployments/manifests/kubernetes-deploy.yaml
 ```
 
-###### Pay attention
+## Configuration
 
-For development and testing purposes, I use docker images with the `dev` tag. 
-But I also publish images with tag matching the release version, like `0.1.0`. You can find the full list of tags [on Docker Hub](https://hub.docker.com/r/sergkondr/fakesvc/tags)
+The parser is strict: unknown fields, legacy `http_endpoints`, `ws_endpoints`, and `slowness` are rejected. `path` is always the final public path; no endpoint type adds a hidden prefix.
 
-### Usage
-
-```shell
-➜ curl localhost:8080/
-Available endpoints:
-- /good - Good endpoint: Fast enough, no errors at all
-- /bad - Bad endpoint: 30% of requests fails with 500 error
-- /slow - Slow endpoint: Sometimes it fails, but it is always slow
-
-➜ time curl localhost:8080/good
-success: /good
-curl localhost:8080/good  0.00s user 0.01s system 4% cpu 0.230 total
-
-➜ time curl localhost:8080/slow
-success: /slow
-curl localhost:8080/slow  0.01s user 0.01s system 0% cpu 2.822 total
-```
-
-### Configuration
-
-[Here](./examples/config.yaml) you can find the config file that I use for development purposes. I believe it is the most detailed configuration possible.
-
-For now, config implements the following options:
 ```yaml
-listen: 127.0.0.1:8080  # optional, default value = 0.0.0.0:8080
+listen: 0.0.0.0:8080 # optional; default: 0.0.0.0:8080
+
+metrics:
+  enabled: true
+  path: /metrics # optional; default: /metrics when enabled
 
 endpoints:
-  - name: echo                    # optional
-    type: ws/echo                 # required
-    description: WebSocket echo   # optional
-    path: /ws/echo                # required, final public path
-
-  - name: time                    # optional
-    type: ws/stream               # required
-    description: Time stream      # optional
-    path: /ws/time                # required, final public path
-    stream:
-      interval: 1s                # required, must be greater than zero
-
-  - name: Some endpoint             # optional, used in endpoint list on /
-    type: http                       # required
-    description: Simple description # optional, used in endpoint list on /
-    path: /path                     # required
-    hidden: true                    # optional, do not display on request to /
-    do_not_log: true                # optional, do not write access logs
-    chaos:
-      error_rate: 0.0               # optional, in range [0.0, 1.0]
-      latency:                      # optional
-        min: 10ms                   # required when latency is configured
-        p95: 50ms                   # min <= p95 <= max
+  - name: Good endpoint
+    type: http
+    description: Static HTTP response
+    path: /good
+    response: # optional; status defaults to 200
+      status: 201
+      headers:
+        Content-Type: text/plain
+        X-Example: configured
+      body: created
+    chaos: # optional; applies before the handler
+      error_rate: 0.3 # range: 0.0–1.0
+      error_status: 503 # optional; default: 500
+      latency:
+        min: 10ms
+        p95: 50ms
         max: 100ms
 
   - name: Upstream service
-    type: proxy                      # proxies every HTTP method and nested path
+    type: proxy
     path: /service
     backend:
       url: https://service.example.com/api/v1
-      timeout: 10s                   # optional, default is 10s
-      preserve_host: false            # optional, defaults to backend host
+      timeout: 10s # optional; default: 10s
+      preserve_host: false
+    chaos:
+      error_rate: 0.1
+
+  - name: Echo
+    type: ws/echo
+    path: /ws/echo
+
+  - name: Clock stream
+    type: ws/stream
+    path: /ws/time
+    stream:
+      interval: 1s
 ```
 
-The configuration parser is strict. Legacy `http_endpoints`, `ws_endpoints`, and `slowness` fields are not supported.
+All endpoint types support `name`, `description`, `hidden`, `do_not_log`, and `chaos`. `hidden` excludes an endpoint from `/`; `do_not_log` disables its access log.
 
-`ws/echo` accepts text frames and returns a JSON text frame. Binary frames are rejected with WebSocket close code `1003`.
-`ws/stream` sends a JSON message immediately after the handshake and then every configured interval. Each message contains `backend`, `endpoint`, an increasing `sequence`, and a UTC `timestamp` in RFC3339Nano format.
+`http` supports `GET` and `HEAD`. `proxy` supports every HTTP method and owns its configured path plus all nested paths. With `path: /service` and `backend.url: https://service.example.com/api/v1`, a request to `/service/users?id=42` reaches `/api/v1/users?id=42` upstream. Network and timeout errors return `502 Bad Gateway`.
 
-### Metrics
+`ws/echo` accepts text frames and returns a JSON text frame. Binary frames are closed with code `1003`. `ws/stream` sends a JSON message immediately after the handshake and then at the configured interval. It includes the backend hostname, endpoint, sequence, and an RFC3339Nano UTC timestamp.
 
-When `metrics.enabled` is set, HTTP metrics use only bounded labels: the configured `endpoint`, endpoint `type`, request `method`, and `status_code`. Request URL, query string, client address, and endpoint name are never labels.
+## Metrics and operations
 
-WebSocket endpoints expose active/opened/closed connection metrics, sent/received message counters, and read/write error counters. WebSocket connections are intentionally excluded from HTTP request-duration metrics.
+Set `metrics.enabled: true` to expose Prometheus metrics. HTTP labels are bounded to configured `endpoint`, endpoint `type`, request `method`, and `status_code`; URL subpaths, query parameters, client addresses, and endpoint names are never labels. Proxy upstream duration and errors use only the configured public endpoint label. WebSocket endpoints export connection, message, and read/write-error metrics.
 
-Proxy endpoints expose `fakesvc_proxy_upstream_duration_seconds` and `fakesvc_proxy_upstream_errors_total`, labelled only with the configured public endpoint. A proxy owns its configured path and all nested paths: `/service/users?id=42` with `backend.url: https://service.example.com/api/v1` becomes `https://service.example.com/api/v1/users?id=42`.
+The HTTP server has 5-second header, 30-second read/write, and 2-minute idle timeouts. WebSocket handlers maintain their own read/write deadlines and ping/pong policy after upgrade.
+
+## Development and release
+
+```shell
+make fmt
+make lint
+make test
+make test-race
+make build APP_VERSION=0.2.0
+make docker APP_VERSION=0.2.0
+make docker-multiarch APP_VERSION=0.2.0
+```
+
+`make docker` builds a local image. `make docker-multiarch` builds and pushes `linux/amd64` and `linux/arm64`; set `IMAGE` or `PLATFORMS` to override their defaults.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [0.2.0.md](0.2.0.md) for the 0.2.0 design and implementation checklist.

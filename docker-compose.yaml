@@ -1,8 +1,7 @@
 services:
   fakesvc:
     build: .
-    container_name: fakesvc
-    image: sergkondr/fakesvc
+    image: sergkondr/fakesvc:dev
     command:
       - --config
       - /app/config.yaml
@@ -10,8 +9,7 @@ services:
       - source: config
         target: /app/config.yaml
     ports:
-      - 8080:8080
-    depends_on: []
+      - "8080:8080"
 
 configs:
   config:

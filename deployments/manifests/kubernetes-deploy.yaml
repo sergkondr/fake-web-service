@@ -4,10 +4,11 @@ metadata:
   name: fakesvc-config
 data:
   config.yaml: |
+    listen: 0.0.0.0:8080
     metrics:
       enabled: true
       path: /metrics
-    
+
     endpoints:
       - name: echo
         type: ws/echo
@@ -73,6 +74,7 @@ metadata:
   name: fakesvc
 spec:
   replicas: 3
+  minReadySeconds: 5
   selector:
     matchLabels:
       app: fakesvc
@@ -85,9 +87,10 @@ spec:
       labels:
         app: fakesvc
     spec:
+      terminationGracePeriodSeconds: 30
       containers:
-      - image: sergkondr/fakesvc:dev
-        imagePullPolicy: Always
+      - image: sergkondr/fakesvc:dev # Replace with a released version in production.
+        imagePullPolicy: IfNotPresent
         name: fakesvc
         command:
         - /app/fakesvc
@@ -108,12 +111,23 @@ spec:
           runAsGroup: 65534
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        startupProbe:
+          httpGet:
+            port: http
+            path: /healthz
+          failureThreshold: 15
+          periodSeconds: 2
         livenessProbe:
-          tcpSocket:
-            port: 8080
+          httpGet:
+            port: http
+            path: /healthz
         readinessProbe:
           httpGet:
-            port: 8080
+            port: http
             path: /healthz
         volumeMounts:
         - name: fakesvc-config
