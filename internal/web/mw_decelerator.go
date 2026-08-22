@@ -22,15 +22,22 @@ func decelerator(cfg config.HTTPEndpoint) func(next http.Handler) http.Handler {
 }
 
 func getDelay(minT, maxT, p95T time.Duration) time.Duration {
-	minMsec := minT.Milliseconds()
-	maxMsec := maxT.Milliseconds()
-	p95Msec := p95T.Milliseconds()
-
-	r := minMsec + rand.Int63n(p95Msec-minMsec)
-	if rand.Intn(100) > 95 {
-		// if this request did not get into the 95th percentile
-		r += rand.Int63n(maxMsec - p95Msec)
+	if minT == maxT {
+		return minT
 	}
 
-	return time.Duration(r) * time.Millisecond
+	if rand.Intn(100) >= 95 {
+		// If this request did not get into the 95th percentile, use the tail
+		// of the configured distribution.
+		if maxT > p95T {
+			return p95T + time.Duration(rand.Int63n(int64(maxT-p95T)))
+		}
+		return p95T
+	}
+
+	if p95T > minT {
+		return minT + time.Duration(rand.Int63n(int64(p95T-minT)))
+	}
+
+	return minT
 }
