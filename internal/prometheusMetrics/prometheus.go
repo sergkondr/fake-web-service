@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	httpendpoint "github.com/sergkondr/fake-web-service/internal/web/http"
 	"github.com/sergkondr/fake-web-service/internal/web/ws"
 )
 
@@ -23,6 +24,8 @@ type MetricsServer struct {
 	webSocketConnectionsTotal  *prometheus.CounterVec
 	webSocketMessagesTotal     *prometheus.CounterVec
 	webSocketErrorsTotal       *prometheus.CounterVec
+	proxyUpstreamDuration      *prometheus.HistogramVec
+	proxyUpstreamErrorsTotal   *prometheus.CounterVec
 }
 
 func New(metricsNamespace string) MetricsServer {
@@ -79,6 +82,23 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint", "operation"},
 	)
+	m.proxyUpstreamDuration = promauto.With(m.Registry).NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: metricsNamespace,
+			Name:      "proxy_upstream_duration_seconds",
+			Help:      "Proxy upstream round-trip duration by configured endpoint.",
+			Buckets:   []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+		},
+		[]string{"endpoint"},
+	)
+	m.proxyUpstreamErrorsTotal = promauto.With(m.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricsNamespace,
+			Name:      "proxy_upstream_errors_total",
+			Help:      "Proxy upstream errors by configured endpoint.",
+		},
+		[]string{"endpoint"},
+	)
 
 	slog.Debug("prometheus metrics server initialized")
 	return m
@@ -105,6 +125,11 @@ func (m *MetricsServer) WebSocketObserver() ws.Observer {
 	return webSocketObserver{metrics: m}
 }
 
+// ProxyObserver returns an observer for proxy upstream requests.
+func (m *MetricsServer) ProxyObserver() httpendpoint.ProxyObserver {
+	return proxyObserver{metrics: m}
+}
+
 // MetricsHandler returns an HTTP handler that exposes this instance's registry.
 func (m *MetricsServer) MetricsHandler() http.Handler {
 	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{Registry: m.Registry})
@@ -112,6 +137,18 @@ func (m *MetricsServer) MetricsHandler() http.Handler {
 
 type webSocketObserver struct {
 	metrics *MetricsServer
+}
+
+type proxyObserver struct {
+	metrics *MetricsServer
+}
+
+func (observer proxyObserver) UpstreamRequest(endpoint string, duration time.Duration) {
+	observer.metrics.proxyUpstreamDuration.WithLabelValues(endpoint).Observe(duration.Seconds())
+}
+
+func (observer proxyObserver) UpstreamError(endpoint string) {
+	observer.metrics.proxyUpstreamErrorsTotal.WithLabelValues(endpoint).Inc()
 }
 
 func (observer webSocketObserver) ConnectionOpened(endpoint string) {

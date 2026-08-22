@@ -90,13 +90,13 @@ func TestHTTPEndpointUsesConfiguredResponse(t *testing.T) {
 	})
 }
 
-func TestRouterRejectsEndpointTypesNotImplementedYet(t *testing.T) {
+func TestRouterRejectsUnsupportedEndpointType(t *testing.T) {
 	_, err := New(config.Config{Endpoints: []config.Endpoint{{
-		Type: config.EndpointTypeProxy,
-		Path: "/proxy",
+		Type: "unknown",
+		Path: "/unknown",
 	}}})
-	if err == nil || !strings.Contains(err.Error(), "not implemented yet") {
-		t.Fatalf("New() error = %v, want not implemented error", err)
+	if err == nil || !strings.Contains(err.Error(), "unsupported type") {
+		t.Fatalf("New() error = %v, want unsupported type error", err)
 	}
 }
 

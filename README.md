@@ -73,6 +73,14 @@ endpoints:
         min: 10ms                   # required when latency is configured
         p95: 50ms                   # min <= p95 <= max
         max: 100ms
+
+  - name: Upstream service
+    type: proxy                      # proxies every HTTP method and nested path
+    path: /service
+    backend:
+      url: https://service.example.com/api/v1
+      timeout: 10s                   # optional, default is 10s
+      preserve_host: false            # optional, defaults to backend host
 ```
 
 The configuration parser is strict. Legacy `http_endpoints`, `ws_endpoints`, and `slowness` fields are not supported.
@@ -85,3 +93,5 @@ The configuration parser is strict. Legacy `http_endpoints`, `ws_endpoints`, and
 When `metrics.enabled` is set, HTTP metrics use only bounded labels: the configured `endpoint`, endpoint `type`, request `method`, and `status_code`. Request URL, query string, client address, and endpoint name are never labels.
 
 WebSocket endpoints expose active/opened/closed connection metrics, sent/received message counters, and read/write error counters. WebSocket connections are intentionally excluded from HTTP request-duration metrics.
+
+Proxy endpoints expose `fakesvc_proxy_upstream_duration_seconds` and `fakesvc_proxy_upstream_errors_total`, labelled only with the configured public endpoint. A proxy owns its configured path and all nested paths: `/service/users?id=42` with `backend.url: https://service.example.com/api/v1` becomes `https://service.example.com/api/v1/users?id=42`.

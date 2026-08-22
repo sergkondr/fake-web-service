@@ -50,8 +50,14 @@ data:
             min: 1s
             p95: 5s
             max: 10s
-      - path: /your-service
-        type: http
+      - name: Proxy endpoint
+        type: proxy
+        description: Sends requests to an upstream backend with configurable chaos
+        path: /your-service
+        backend:
+          url: https://service.example.com/api/v1
+          timeout: 10s
+          preserve_host: false
         chaos:
           error_rate: 0.5
           latency:
