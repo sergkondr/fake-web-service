@@ -47,21 +47,24 @@ For now, config implements the following options:
 ```yaml
 listen: 127.0.0.1:8080  # optional, default value = 0.0.0.0:8080
 
-ws_endpoints:                     # only 1 ws endpoint is supported now
+endpoints:
   - name: echo                    # optional
+    type: ws/echo                 # required
     description: WebSocket echo   # optional
-    path: /echo                   # required, but will be rewrited to /ws/{{ path }} 
-    type: echo                    # required, only "echo" is supported now
+    path: /ws/echo                # required, final public path
 
-http_endpoints:
   - name: Some endpoint             # optional, used in endpoint list on /
+    type: http                       # required
     description: Simple description # optional, used in endpoint list on /
     path: /path                     # required
-    error_rate: 0.0                 # optional, in range [0.0, 1.0]
     hidden: true                    # optional, do not display on request to /
     do_not_log: true                # optional, do not write access logs
-    slowness:                       # required
-      min: 10ms                     # required, time duration, should be less than p95
-      p95: 50ms                     # required, time duration, should be less than max
-      max: 100ms                    # required, time duration
+    chaos:
+      error_rate: 0.0               # optional, in range [0.0, 1.0]
+      latency:                      # optional
+        min: 10ms                   # required when latency is configured
+        p95: 50ms                   # min <= p95 <= max
+        max: 100ms
 ```
+
+The configuration parser is strict. Legacy `http_endpoints`, `ws_endpoints`, and `slowness` fields are not supported.

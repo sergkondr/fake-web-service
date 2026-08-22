@@ -2,19 +2,24 @@ package web
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/sergkondr/fake-web-service/internal/config"
 )
 
 func TestWebSocketEchoReturnsValidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(wsHandlerEcho("test-backend")))
+	server := httptest.NewServer(newTestRouter(t, config.Config{
+		Hostname: "test-backend",
+		Endpoints: []config.Endpoint{
+			{Type: config.EndpointTypeWSEcho, Path: "/echo"},
+		},
+	}))
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/echo"
 	connection, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
@@ -54,8 +59,8 @@ func TestWebSocketEchoReturnsValidJSON(t *testing.T) {
 	if response.Backend != "test-backend" {
 		t.Errorf("backend = %q, want %q", response.Backend, "test-backend")
 	}
-	if response.Endpoint != "/" {
-		t.Errorf("endpoint = %q, want %q", response.Endpoint, "/")
+	if response.Endpoint != "/echo" {
+		t.Errorf("endpoint = %q, want %q", response.Endpoint, "/echo")
 	}
 	if response.Message != wantMessage {
 		t.Errorf("message = %q, want %q", response.Message, wantMessage)

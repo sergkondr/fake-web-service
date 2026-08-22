@@ -8,16 +8,38 @@ import (
 	"github.com/sergkondr/fake-web-service/internal/config"
 )
 
-func decelerator(cfg config.HTTPEndpoint) func(next http.Handler) http.Handler {
+func decelerator(chaos config.Chaos) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
+		if chaos.Latency == nil {
+			return next
+		}
+
 		fn := func(w http.ResponseWriter, r *http.Request) {
-			delay := getDelay(cfg.Slowness.Min, cfg.Slowness.Max, cfg.Slowness.P95)
-			time.Sleep(delay)
+			delay := getDelay(chaos.Latency.Min, chaos.Latency.Max, chaos.Latency.P95)
+			if !waitForDelay(r, delay) {
+				return
+			}
 
 			next.ServeHTTP(w, r)
 		}
 
 		return http.HandlerFunc(fn)
+	}
+}
+
+func waitForDelay(r *http.Request, delay time.Duration) bool {
+	if delay <= 0 {
+		return true
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return true
+	case <-r.Context().Done():
+		return false
 	}
 }
 

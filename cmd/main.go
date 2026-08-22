@@ -33,7 +33,11 @@ func main() {
 	}
 	slog.Debug("config is loaded")
 
-	srv := web.New(cfg)
+	srv, err := web.New(cfg)
+	if err != nil {
+		slog.Error("error creating server: " + err.Error())
+		os.Exit(1)
+	}
 	slog.Info("starting server")
 	if err = http.ListenAndServe(cfg.ListenAddr, srv); err != nil {
 		slog.Error("error starting server: " + err.Error())

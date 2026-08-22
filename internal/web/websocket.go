@@ -9,21 +9,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	wsURLPreffix = "/ws"
-)
-
-type wsTemplateData struct {
-	EchoEndpoint string
-}
-
-func newWSRoot(endpoint string) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := &wsTemplateData{EchoEndpoint: wsURLPreffix + endpoint}
-		wsIndexTemplate.Execute(w, data)
-	}
-}
-
 func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{}

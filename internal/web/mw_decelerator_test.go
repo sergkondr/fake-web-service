@@ -73,7 +73,7 @@ func TestDeceleratorCallsNextHandler(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := decelerator(structuredEndpoint(0))(next)
+	handler := decelerator(chaosWithLatency(0))(next)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/test", nil)
 
@@ -87,9 +87,9 @@ func TestDeceleratorCallsNextHandler(t *testing.T) {
 	}
 }
 
-func structuredEndpoint(delay time.Duration) config.HTTPEndpoint {
-	return config.HTTPEndpoint{
-		Slowness: config.Slowness{
+func chaosWithLatency(delay time.Duration) config.Chaos {
+	return config.Chaos{
+		Latency: &config.Latency{
 			Min: delay,
 			P95: delay,
 			Max: delay,
