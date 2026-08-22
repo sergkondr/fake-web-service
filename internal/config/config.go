@@ -67,7 +67,6 @@ type BackendConfig struct {
 
 type StreamConfig struct {
 	Interval time.Duration `yaml:"interval"`
-	Format   string        `yaml:"format,omitempty"`
 }
 
 type Metrics struct {
@@ -83,7 +82,6 @@ const (
 	defaultErrorStatus     = 500
 	defaultBackendTimeout  = 10 * time.Second
 	defaultResponseStatus  = 200
-	defaultStreamFormat    = "json"
 )
 
 func Get(path string) (Config, error) {
@@ -166,9 +164,6 @@ func applyDefaults(config *Config) {
 		}
 		if endpoint.Backend != nil && endpoint.Backend.Timeout == 0 {
 			endpoint.Backend.Timeout = defaultBackendTimeout
-		}
-		if endpoint.Stream != nil && endpoint.Stream.Format == "" {
-			endpoint.Stream.Format = defaultStreamFormat
 		}
 	}
 }

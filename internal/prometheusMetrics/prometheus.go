@@ -15,7 +15,7 @@ import (
 )
 
 type MetricsServer struct {
-	Registry *prometheus.Registry
+	registry *prometheus.Registry
 
 	requestDuration *prometheus.HistogramVec
 	requestsTotal   *prometheus.CounterVec
@@ -28,10 +28,10 @@ type MetricsServer struct {
 	proxyUpstreamErrorsTotal   *prometheus.CounterVec
 }
 
-func New(metricsNamespace string) MetricsServer {
-	m := MetricsServer{Registry: prometheus.NewRegistry()}
+func New(metricsNamespace string) *MetricsServer {
+	m := &MetricsServer{registry: prometheus.NewRegistry()}
 
-	m.requestDuration = promauto.With(m.Registry).NewHistogramVec(
+	m.requestDuration = promauto.With(m.registry).NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: metricsNamespace,
 			Name:      "http_request_duration_seconds",
@@ -41,7 +41,7 @@ func New(metricsNamespace string) MetricsServer {
 		[]string{"endpoint", "type", "method", "status_code"},
 	)
 
-	m.requestsTotal = promauto.With(m.Registry).NewCounterVec(
+	m.requestsTotal = promauto.With(m.registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Name:      "http_requests_total",
@@ -50,7 +50,7 @@ func New(metricsNamespace string) MetricsServer {
 		[]string{"endpoint", "type", "method", "status_code"},
 	)
 
-	m.webSocketConnectionsActive = promauto.With(m.Registry).NewGaugeVec(
+	m.webSocketConnectionsActive = promauto.With(m.registry).NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: metricsNamespace,
 			Name:      "websocket_connections_active",
@@ -58,7 +58,7 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint"},
 	)
-	m.webSocketConnectionsTotal = promauto.With(m.Registry).NewCounterVec(
+	m.webSocketConnectionsTotal = promauto.With(m.registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Name:      "websocket_connections_total",
@@ -66,7 +66,7 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint", "state"},
 	)
-	m.webSocketMessagesTotal = promauto.With(m.Registry).NewCounterVec(
+	m.webSocketMessagesTotal = promauto.With(m.registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Name:      "websocket_messages_total",
@@ -74,7 +74,7 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint", "direction"},
 	)
-	m.webSocketErrorsTotal = promauto.With(m.Registry).NewCounterVec(
+	m.webSocketErrorsTotal = promauto.With(m.registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Name:      "websocket_errors_total",
@@ -82,7 +82,7 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint", "operation"},
 	)
-	m.proxyUpstreamDuration = promauto.With(m.Registry).NewHistogramVec(
+	m.proxyUpstreamDuration = promauto.With(m.registry).NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: metricsNamespace,
 			Name:      "proxy_upstream_duration_seconds",
@@ -91,7 +91,7 @@ func New(metricsNamespace string) MetricsServer {
 		},
 		[]string{"endpoint"},
 	)
-	m.proxyUpstreamErrorsTotal = promauto.With(m.Registry).NewCounterVec(
+	m.proxyUpstreamErrorsTotal = promauto.With(m.registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: metricsNamespace,
 			Name:      "proxy_upstream_errors_total",
@@ -120,59 +120,39 @@ func (m *MetricsServer) EndpointMiddleware(endpoint, endpointType string) func(n
 	}
 }
 
-// WebSocketObserver returns an observer for WebSocket endpoint activity.
-func (m *MetricsServer) WebSocketObserver() ws.Observer {
-	return webSocketObserver{metrics: m}
+// WebSocketObserver returns an observer scoped to one configured endpoint.
+func (m *MetricsServer) WebSocketObserver(endpoint string) ws.Observer {
+	return func(event ws.Event) {
+		switch event {
+		case ws.ConnectionOpened:
+			m.webSocketConnectionsActive.WithLabelValues(endpoint).Inc()
+			m.webSocketConnectionsTotal.WithLabelValues(endpoint, "opened").Inc()
+		case ws.ConnectionClosed:
+			m.webSocketConnectionsActive.WithLabelValues(endpoint).Dec()
+			m.webSocketConnectionsTotal.WithLabelValues(endpoint, "closed").Inc()
+		case ws.MessageReceived:
+			m.webSocketMessagesTotal.WithLabelValues(endpoint, "received").Inc()
+		case ws.MessageSent:
+			m.webSocketMessagesTotal.WithLabelValues(endpoint, "sent").Inc()
+		case ws.ReadError:
+			m.webSocketErrorsTotal.WithLabelValues(endpoint, "read").Inc()
+		case ws.WriteError:
+			m.webSocketErrorsTotal.WithLabelValues(endpoint, "write").Inc()
+		}
+	}
 }
 
-// ProxyObserver returns an observer for proxy upstream requests.
-func (m *MetricsServer) ProxyObserver() httpendpoint.ProxyObserver {
-	return proxyObserver{metrics: m}
+// ProxyObserver returns an observer scoped to one configured endpoint.
+func (m *MetricsServer) ProxyObserver(endpoint string) httpendpoint.ProxyObserver {
+	return func(duration time.Duration, err error) {
+		m.proxyUpstreamDuration.WithLabelValues(endpoint).Observe(duration.Seconds())
+		if err != nil {
+			m.proxyUpstreamErrorsTotal.WithLabelValues(endpoint).Inc()
+		}
+	}
 }
 
 // MetricsHandler returns an HTTP handler that exposes this instance's registry.
 func (m *MetricsServer) MetricsHandler() http.Handler {
-	return promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{Registry: m.Registry})
-}
-
-type webSocketObserver struct {
-	metrics *MetricsServer
-}
-
-type proxyObserver struct {
-	metrics *MetricsServer
-}
-
-func (observer proxyObserver) UpstreamRequest(endpoint string, duration time.Duration) {
-	observer.metrics.proxyUpstreamDuration.WithLabelValues(endpoint).Observe(duration.Seconds())
-}
-
-func (observer proxyObserver) UpstreamError(endpoint string) {
-	observer.metrics.proxyUpstreamErrorsTotal.WithLabelValues(endpoint).Inc()
-}
-
-func (observer webSocketObserver) ConnectionOpened(endpoint string) {
-	observer.metrics.webSocketConnectionsActive.WithLabelValues(endpoint).Inc()
-	observer.metrics.webSocketConnectionsTotal.WithLabelValues(endpoint, "opened").Inc()
-}
-
-func (observer webSocketObserver) ConnectionClosed(endpoint string) {
-	observer.metrics.webSocketConnectionsActive.WithLabelValues(endpoint).Dec()
-	observer.metrics.webSocketConnectionsTotal.WithLabelValues(endpoint, "closed").Inc()
-}
-
-func (observer webSocketObserver) MessageReceived(endpoint string) {
-	observer.metrics.webSocketMessagesTotal.WithLabelValues(endpoint, "received").Inc()
-}
-
-func (observer webSocketObserver) MessageSent(endpoint string) {
-	observer.metrics.webSocketMessagesTotal.WithLabelValues(endpoint, "sent").Inc()
-}
-
-func (observer webSocketObserver) ReadError(endpoint string) {
-	observer.metrics.webSocketErrorsTotal.WithLabelValues(endpoint, "read").Inc()
-}
-
-func (observer webSocketObserver) WriteError(endpoint string) {
-	observer.metrics.webSocketErrorsTotal.WithLabelValues(endpoint, "write").Inc()
+	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{Registry: m.registry})
 }

@@ -74,8 +74,8 @@ endpoints:
 	}
 
 	streamEndpoint := cfg.Endpoints[3]
-	if streamEndpoint.Stream == nil || streamEndpoint.Stream.Format != defaultStreamFormat {
-		t.Fatalf("stream config = %#v, want default format %q", streamEndpoint.Stream, defaultStreamFormat)
+	if streamEndpoint.Stream == nil {
+		t.Fatalf("stream config = %#v, want stream config", streamEndpoint.Stream)
 	}
 }
 
@@ -355,14 +355,6 @@ func TestValidateConfig(t *testing.T) {
 				Type: EndpointTypeWSStream, Path: "/ws/time", Stream: &StreamConfig{},
 			}}},
 			wantError: "interval must be greater than zero",
-		},
-		{
-			name: "stream with unknown format",
-			cfg: Config{Endpoints: []Endpoint{{
-				Type: EndpointTypeWSStream, Path: "/ws/time",
-				Stream: &StreamConfig{Interval: time.Second, Format: "xml"},
-			}}},
-			wantError: "unsupported format",
 		},
 	}
 

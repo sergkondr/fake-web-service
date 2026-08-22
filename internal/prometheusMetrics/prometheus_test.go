@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sergkondr/fake-web-service/internal/web/ws"
 )
 
 func TestPrometheusMiddlewareGroupsRequestsByPath(t *testing.T) {
@@ -52,13 +53,13 @@ func TestPrometheusMiddlewareGroupsRequestsByPath(t *testing.T) {
 
 func TestWebSocketMetricsUseConfiguredEndpoint(t *testing.T) {
 	prom := New("fakesvc")
-	observer := prom.WebSocketObserver()
+	observer := prom.WebSocketObserver("/time")
 
-	observer.ConnectionOpened("/time")
-	observer.MessageSent("/time")
-	observer.MessageReceived("/time")
-	observer.ReadError("/time")
-	observer.ConnectionClosed("/time")
+	observer(ws.ConnectionOpened)
+	observer(ws.MessageSent)
+	observer(ws.MessageReceived)
+	observer(ws.ReadError)
+	observer(ws.ConnectionClosed)
 
 	recorder := httptest.NewRecorder()
 	prom.MetricsHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))

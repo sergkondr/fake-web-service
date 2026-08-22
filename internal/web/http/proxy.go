@@ -15,11 +15,8 @@ import (
 	"github.com/sergkondr/fake-web-service/internal/config"
 )
 
-// ProxyObserver records bounded metrics for an upstream request.
-type ProxyObserver interface {
-	UpstreamRequest(endpoint string, duration time.Duration)
-	UpstreamError(endpoint string)
-}
+// ProxyObserver records the result of an upstream request.
+type ProxyObserver func(duration time.Duration, err error)
 
 // Proxy creates a reverse proxy for one configured public path and its subpaths.
 func Proxy(endpointPath string, backend config.BackendConfig, observer ProxyObserver) (http.Handler, error) {
@@ -48,7 +45,6 @@ func Proxy(endpointPath string, backend config.BackendConfig, observer ProxyObse
 		Transport: &observedTransport{
 			transport: transport.Clone(),
 			timeout:   backend.Timeout,
-			endpoint:  endpointPath,
 			observer:  observer,
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -63,7 +59,6 @@ func Proxy(endpointPath string, backend config.BackendConfig, observer ProxyObse
 type observedTransport struct {
 	transport http.RoundTripper
 	timeout   time.Duration
-	endpoint  string
 	observer  ProxyObserver
 }
 
@@ -71,31 +66,32 @@ func (transport *observedTransport) RoundTrip(request *http.Request) (*http.Resp
 	start := time.Now()
 	contextWithTimeout, cancel := context.WithTimeout(request.Context(), transport.timeout)
 	response, err := transport.transport.RoundTrip(request.WithContext(contextWithTimeout))
-	duration := time.Since(start)
-	if transport.observer != nil {
-		transport.observer.UpstreamRequest(transport.endpoint, duration)
-	}
 	if err != nil {
 		cancel()
 		if transport.observer != nil {
-			transport.observer.UpstreamError(transport.endpoint)
+			transport.observer(time.Since(start), err)
 		}
 		return nil, err
 	}
 
-	response.Body = &cancelOnClose{ReadCloser: response.Body, cancel: cancel}
+	finish := func() {
+		cancel()
+		if transport.observer != nil {
+			transport.observer(time.Since(start), nil)
+		}
+	}
+	response.Body = &observedBody{ReadCloser: response.Body, finish: sync.OnceFunc(finish)}
 	return response, nil
 }
 
-type cancelOnClose struct {
+type observedBody struct {
 	io.ReadCloser
-	cancel context.CancelFunc
-	once   sync.Once
+	finish func()
 }
 
-func (body *cancelOnClose) Close() error {
+func (body *observedBody) Close() error {
 	err := body.ReadCloser.Close()
-	body.once.Do(body.cancel)
+	body.finish()
 	return err
 }
 

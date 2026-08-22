@@ -36,14 +36,14 @@ func TestGetDelayReturnsValueWithinConfiguredRange(t *testing.T) {
 	}
 }
 
-func TestDeceleratorCallsNextHandler(t *testing.T) {
+func TestChaosCallsNextHandler(t *testing.T) {
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := Decelerator(chaosWithLatency(0))(next)
+	handler := Chaos(chaosWithLatency(0))(next)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/test", nil)
 

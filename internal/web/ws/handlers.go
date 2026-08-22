@@ -2,10 +2,8 @@
 package ws
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -20,25 +18,28 @@ const (
 	pingPeriod     = pongWait * 9 / 10
 )
 
-var upgrader = websocket.Upgrader{CheckOrigin: sameOrigin}
+var upgrader = websocket.Upgrader{}
+
+// Event identifies a bounded WebSocket activity metric.
+type Event uint8
+
+const (
+	ConnectionOpened Event = iota
+	ConnectionClosed
+	MessageReceived
+	MessageSent
+	ReadError
+	WriteError
+)
+
+// Observer receives WebSocket activity events for one configured endpoint.
+type Observer func(Event)
 
 type connection struct {
 	websocket *websocket.Conn
-	endpoint  string
 	observer  Observer
 	done      chan struct{}
 	stopOnce  sync.Once
-	writeMu   sync.Mutex
-}
-
-// Observer receives bounded WebSocket endpoint activity events.
-type Observer interface {
-	ConnectionOpened(endpoint string)
-	ConnectionClosed(endpoint string)
-	MessageReceived(endpoint string)
-	MessageSent(endpoint string)
-	ReadError(endpoint string)
-	WriteError(endpoint string)
 }
 
 type echoMessage struct {
@@ -59,14 +60,13 @@ type streamMessage struct {
 // Echo accepts text frames and returns their metadata and content as JSON text frames.
 func Echo(hostname, endpoint string, observer Observer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		connection, err := upgrade(w, r, endpoint, observer)
+		connection, err := upgrade(w, r, observer)
 		if err != nil {
-			slog.Error("websocket echo handler upgrade", "error", err)
+			slog.Debug("websocket echo handler upgrade", "error", err)
 			return
 		}
+		connection.observe(ConnectionOpened)
 		defer connection.stop()
-		connection.connectionOpened()
-		defer connection.connectionClosed()
 
 		for {
 			messageType, message, err := connection.websocket.ReadMessage()
@@ -74,7 +74,7 @@ func Echo(hostname, endpoint string, observer Observer) http.HandlerFunc {
 				connection.logReadError("websocket echo handler", err)
 				return
 			}
-			connection.messageReceived()
+			connection.observe(MessageReceived)
 			if messageType != websocket.TextMessage {
 				connection.closeWith(websocket.CloseUnsupportedData, "only text messages are supported")
 				return
@@ -85,22 +85,17 @@ func Echo(hostname, endpoint string, observer Observer) http.HandlerFunc {
 			}
 
 			slog.Debug("websocket message received",
-				slog.String("endpoint", r.URL.Path),
+				slog.String("endpoint", endpoint),
 				slog.String("message", string(message)),
 				slog.String("sender", r.RemoteAddr))
 
-			payload, err := json.Marshal(echoMessage{
+			if err = connection.writeJSON(echoMessage{
 				Backend:  hostname,
 				Host:     r.Host,
-				Endpoint: r.URL.Path,
+				Endpoint: endpoint,
 				Sender:   r.RemoteAddr,
 				Message:  string(message),
-			})
-			if err != nil {
-				slog.Error("encode websocket echo response", "error", err)
-				return
-			}
-			if err = connection.writeMessage(websocket.TextMessage, payload); err != nil {
+			}); err != nil {
 				slog.Error("write websocket echo response", "error", err)
 				return
 			}
@@ -111,14 +106,13 @@ func Echo(hostname, endpoint string, observer Observer) http.HandlerFunc {
 // Stream writes a JSON time message immediately and then once per interval.
 func Stream(hostname, endpoint string, interval time.Duration, observer Observer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		connection, err := upgrade(w, r, endpoint, observer)
+		connection, err := upgrade(w, r, observer)
 		if err != nil {
-			slog.Error("websocket stream handler upgrade", "error", err)
+			slog.Debug("websocket stream handler upgrade", "error", err)
 			return
 		}
+		connection.observe(ConnectionOpened)
 		defer connection.stop()
-		connection.connectionOpened()
-		defer connection.connectionClosed()
 
 		readerDone := make(chan struct{})
 		go func() {
@@ -129,23 +123,19 @@ func Stream(hostname, endpoint string, interval time.Duration, observer Observer
 					connection.logReadError("websocket stream handler", err)
 					return
 				}
-				connection.messageReceived()
+				connection.observe(MessageReceived)
 			}
 		}()
 
 		var sequence uint64
 		send := func() error {
 			sequence++
-			payload, err := json.Marshal(streamMessage{
+			return connection.writeJSON(streamMessage{
 				Backend:   hostname,
-				Endpoint:  r.URL.Path,
+				Endpoint:  endpoint,
 				Sequence:  sequence,
 				Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
 			})
-			if err != nil {
-				return err
-			}
-			return connection.writeMessage(websocket.TextMessage, payload)
 		}
 
 		if err := send(); err != nil {
@@ -171,7 +161,7 @@ func Stream(hostname, endpoint string, interval time.Duration, observer Observer
 	}
 }
 
-func upgrade(w http.ResponseWriter, r *http.Request, endpoint string, observer Observer) (*connection, error) {
+func upgrade(w http.ResponseWriter, r *http.Request, observer Observer) (*connection, error) {
 	websocketConnection, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return nil, err
@@ -183,12 +173,7 @@ func upgrade(w http.ResponseWriter, r *http.Request, endpoint string, observer O
 		return websocketConnection.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	managed := &connection{
-		websocket: websocketConnection,
-		endpoint:  endpoint,
-		observer:  observer,
-		done:      make(chan struct{}),
-	}
+	managed := &connection{websocket: websocketConnection, observer: observer, done: make(chan struct{})}
 	go managed.pingLoop()
 	return managed, nil
 }
@@ -203,7 +188,6 @@ func (connection *connection) pingLoop() {
 			return
 		case <-ticker.C:
 			if err := connection.writeControl(websocket.PingMessage, nil); err != nil {
-				slog.Debug("write websocket ping", "error", err)
 				connection.stop()
 				return
 			}
@@ -211,28 +195,25 @@ func (connection *connection) pingLoop() {
 	}
 }
 
-func (connection *connection) writeMessage(messageType int, payload []byte) error {
-	connection.writeMu.Lock()
-	defer connection.writeMu.Unlock()
-
+func (connection *connection) writeJSON(value any) error {
 	if err := connection.websocket.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-		connection.writeError()
+		connection.observe(WriteError)
 		return err
 	}
-	err := connection.websocket.WriteMessage(messageType, payload)
-	if err != nil {
-		connection.writeError()
+	if err := connection.websocket.WriteJSON(value); err != nil {
+		connection.observe(WriteError)
 		return err
 	}
-	connection.messageSent()
+	connection.observe(MessageSent)
 	return nil
 }
 
 func (connection *connection) writeControl(messageType int, payload []byte) error {
-	connection.writeMu.Lock()
-	defer connection.writeMu.Unlock()
-
-	return connection.websocket.WriteControl(messageType, payload, time.Now().Add(writeWait))
+	if err := connection.websocket.WriteControl(messageType, payload, time.Now().Add(writeWait)); err != nil {
+		connection.observe(WriteError)
+		return err
+	}
+	return nil
 }
 
 func (connection *connection) closeWith(code int, message string) {
@@ -243,62 +224,23 @@ func (connection *connection) closeWith(code int, message string) {
 
 func (connection *connection) stop() {
 	connection.stopOnce.Do(func() {
+		connection.observe(ConnectionClosed)
 		close(connection.done)
 		_ = connection.websocket.Close()
 	})
 }
 
-func sameOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
+func (connection *connection) observe(event Event) {
+	if connection.observer != nil {
+		connection.observer(event)
 	}
-
-	parsedOrigin, err := url.Parse(origin)
-	return err == nil && parsedOrigin.Host == r.Host
 }
 
 func (connection *connection) logReadError(handler string, err error) {
 	if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-		connection.readError()
+		connection.observe(ReadError)
 		slog.Error(handler+" read", "error", err)
 		return
 	}
 	slog.Debug(handler + " closed")
-}
-
-func (connection *connection) connectionOpened() {
-	if connection.observer != nil {
-		connection.observer.ConnectionOpened(connection.endpoint)
-	}
-}
-
-func (connection *connection) connectionClosed() {
-	if connection.observer != nil {
-		connection.observer.ConnectionClosed(connection.endpoint)
-	}
-}
-
-func (connection *connection) messageReceived() {
-	if connection.observer != nil {
-		connection.observer.MessageReceived(connection.endpoint)
-	}
-}
-
-func (connection *connection) messageSent() {
-	if connection.observer != nil {
-		connection.observer.MessageSent(connection.endpoint)
-	}
-}
-
-func (connection *connection) readError() {
-	if connection.observer != nil {
-		connection.observer.ReadError(connection.endpoint)
-	}
-}
-
-func (connection *connection) writeError() {
-	if connection.observer != nil {
-		connection.observer.WriteError(connection.endpoint)
-	}
 }

@@ -16,12 +16,16 @@ func Logger(endpoint, endpointType string) func(next http.Handler) http.Handler 
 			responseWriter := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 
 			defer func() {
+				status := responseWriter.Status()
+				if status == 0 && r.Header.Get("Upgrade") != "" {
+					status = http.StatusSwitchingProtocols
+				}
 				slog.Info("request handled",
 					"endpoint", endpoint,
 					"type", endpointType,
 					"method", r.Method,
 					"duration", time.Since(startTime).String(),
-					"status", responseWriter.Status(),
+					"status", status,
 					"size", responseWriter.BytesWritten(),
 				)
 			}()

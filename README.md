@@ -59,7 +59,6 @@ endpoints:
     path: /ws/time                # required, final public path
     stream:
       interval: 1s                # required, must be greater than zero
-      format: json                # optional, json is the only supported format
 
   - name: Some endpoint             # optional, used in endpoint list on /
     type: http                       # required

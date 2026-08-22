@@ -255,7 +255,7 @@ func TestProxyCancelsUpstreamWhenClientDisconnects(t *testing.T) {
 	defer backend.Close()
 
 	router := newProxyRouter(t, "/service", backend.URL, false, config.Chaos{})
-	requestContext, cancel := context.WithCancel(context.Background())
+	requestContext, cancel := context.WithCancel(t.Context())
 	request := httptest.NewRequestWithContext(requestContext, http.MethodGet, "/service", nil)
 	go func() {
 		time.Sleep(10 * time.Millisecond)

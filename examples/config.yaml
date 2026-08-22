@@ -14,7 +14,6 @@ endpoints:
     path: /ws/time
     stream:
       interval: 1s
-      format: json
   - name: Good endpoint
     type: http
     description: Fast enough, no errors at all

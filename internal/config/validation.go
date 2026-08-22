@@ -189,9 +189,6 @@ func validateStream(stream StreamConfig) error {
 	if stream.Interval <= 0 {
 		return fmt.Errorf("interval must be greater than zero")
 	}
-	if stream.Format != defaultStreamFormat {
-		return fmt.Errorf("unsupported format %q", stream.Format)
-	}
 
 	return nil
 }

@@ -17,29 +17,29 @@ func New(cfg config.Config) (chi.Router, error) {
 	r := chi.NewRouter()
 
 	var httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler
-	var proxyObserver httpendpoint.ProxyObserver
-	var webSocketObserver ws.Observer
+	var proxyObserver func(endpoint string) httpendpoint.ProxyObserver
+	webSocketObserver := func(string) ws.Observer { return nil }
 	if cfg.Metrics.Enabled {
 		metrics := prometheusMetrics.New("fakesvc")
 		r.Handle(cfg.Metrics.Path, metrics.MetricsHandler())
 		httpMetricsMiddleware = metrics.EndpointMiddleware
-		proxyObserver = metrics.ProxyObserver()
-		webSocketObserver = metrics.WebSocketObserver()
+		proxyObserver = metrics.ProxyObserver
+		webSocketObserver = metrics.WebSocketObserver
 	}
 
 	var endpoints strings.Builder
 	for _, endpoint := range cfg.Endpoints {
-		if err := registerEndpoint(r, cfg, endpoint, httpMetricsMiddleware, webSocketObserver, proxyObserver); err != nil {
+		if err := registerEndpoint(r, cfg.Hostname, endpoint, httpMetricsMiddleware, webSocketObserver, proxyObserver); err != nil {
 			return nil, err
 		}
 		if !endpoint.Hidden {
-			endpoints.WriteString(fmt.Sprintf("- %s - %s: %s\n", endpoint.Path, endpoint.Name, endpoint.Description))
+			_, _ = fmt.Fprintf(&endpoints, "- %s - %s: %s\n", endpoint.Path, endpoint.Name, endpoint.Description)
 		}
 	}
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("Available endpoints:\n%s\nHostname: %s\n", endpoints.String(), cfg.Hostname)))
+		_, _ = fmt.Fprintf(w, "Available endpoints:\n%s\nHostname: %s\n", endpoints.String(), cfg.Hostname)
 	})
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -52,51 +52,57 @@ func New(cfg config.Config) (chi.Router, error) {
 
 func registerEndpoint(
 	r chi.Router,
-	cfg config.Config,
+	hostname string,
 	endpoint config.Endpoint,
 	httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler,
-	webSocketObserver ws.Observer,
-	proxyObserver httpendpoint.ProxyObserver,
+	webSocketObserver func(endpoint string) ws.Observer,
+	proxyObserver func(endpoint string) httpendpoint.ProxyObserver,
 ) error {
 	switch endpoint.Type {
 	case config.EndpointTypeHTTP:
-		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, httpMetricsMiddleware)
-			handler := httpendpoint.Static(cfg.Hostname, endpoint)
-			r.MethodFunc(http.MethodGet, endpoint.Path, handler)
-			r.MethodFunc(http.MethodHead, endpoint.Path, handler)
-		})
+		route := endpointRouter(r, endpoint, httpMetricsMiddleware)
+		handler := httpendpoint.Static(hostname, endpoint)
+		route.MethodFunc(http.MethodGet, endpoint.Path, handler)
+		route.MethodFunc(http.MethodHead, endpoint.Path, handler)
 	case config.EndpointTypeWSEcho:
-		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, nil)
-			r.HandleFunc(endpoint.Path, ws.Echo(cfg.Hostname, endpoint.Path, webSocketObserver))
-		})
+		route := endpointRouter(r, endpoint, nil)
+		route.HandleFunc(endpoint.Path, ws.Echo(hostname, endpoint.Path, webSocketObserver(endpoint.Path)))
 	case config.EndpointTypeWSStream:
 		if endpoint.Stream == nil {
 			return fmt.Errorf("endpoint %q of type %q has no stream config", endpoint.Path, endpoint.Type)
 		}
-		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, nil)
-			r.HandleFunc(endpoint.Path, ws.Stream(cfg.Hostname, endpoint.Path, endpoint.Stream.Interval, webSocketObserver))
-		})
+		route := endpointRouter(r, endpoint, nil)
+		route.HandleFunc(endpoint.Path, ws.Stream(hostname, endpoint.Path, endpoint.Stream.Interval, webSocketObserver(endpoint.Path)))
 	case config.EndpointTypeProxy:
 		if endpoint.Backend == nil {
 			return fmt.Errorf("endpoint %q of type %q has no backend config", endpoint.Path, endpoint.Type)
 		}
-		handler, err := httpendpoint.Proxy(endpoint.Path, *endpoint.Backend, proxyObserver)
+		var observer httpendpoint.ProxyObserver
+		if proxyObserver != nil {
+			observer = proxyObserver(endpoint.Path)
+		}
+		handler, err := httpendpoint.Proxy(endpoint.Path, *endpoint.Backend, observer)
 		if err != nil {
 			return fmt.Errorf("create proxy for endpoint %q: %w", endpoint.Path, err)
 		}
-		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, httpMetricsMiddleware)
-			r.Handle(endpoint.Path, handler)
-			r.Handle(endpoint.Path+"/*", handler)
-		})
+		route := endpointRouter(r, endpoint, httpMetricsMiddleware)
+		route.Handle(endpoint.Path, handler)
+		route.Handle(endpoint.Path+"/*", handler)
 	default:
 		return fmt.Errorf("endpoint %q has unsupported type %q", endpoint.Path, endpoint.Type)
 	}
 
 	return nil
+}
+
+func endpointRouter(
+	r chi.Router,
+	endpoint config.Endpoint,
+	httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler,
+) chi.Router {
+	route := r.With()
+	useEndpointMiddleware(route, endpoint, httpMetricsMiddleware)
+	return route
 }
 
 func useEndpointMiddleware(
@@ -110,6 +116,5 @@ func useEndpointMiddleware(
 	if httpMetricsMiddleware != nil {
 		r.Use(httpMetricsMiddleware(endpoint.Path, string(endpoint.Type)))
 	}
-	r.Use(middleware.Decelerator(endpoint.Chaos))
-	r.Use(middleware.ErrorInjector(endpoint.Chaos))
+	r.Use(middleware.Chaos(endpoint.Chaos))
 }
