@@ -1,7 +1,7 @@
 package web
 
 import (
-	"fmt"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -35,6 +35,14 @@ func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
 		}
 		defer c.Close()
 
+		type messageData struct {
+			Backend  string `json:"backend"`
+			Host     string `json:"host"`
+			Endpoint string `json:"endpoint"`
+			Sender   string `json:"sender"`
+			Message  string `json:"message"`
+		}
+
 		for {
 			mt, message, err := c.ReadMessage()
 			if err != nil {
@@ -55,12 +63,20 @@ func wsHandlerEcho(hostname string) func(http.ResponseWriter, *http.Request) {
 				slog.String("message", string(message)),
 				slog.String("sender", r.RemoteAddr))
 
-			err = c.WriteMessage(mt, []byte(
-				fmt.Sprintf(`{"backend":"%s", "host":"%s", "endpoint":"%s", "sender":"%s", "message":"%s"}`,
-					hostname, r.Host, r.URL.Path, r.RemoteAddr, message,
-				)))
+			payload, err := json.Marshal(messageData{
+				Backend:  hostname,
+				Host:     r.Host,
+				Endpoint: r.URL.Path,
+				Sender:   r.RemoteAddr,
+				Message:  string(message),
+			})
 			if err != nil {
-				slog.Error("error while writing message:" + err.Error())
+				slog.Error("error encoding websocket message", "error", err)
+				break
+			}
+
+			if err = c.WriteMessage(mt, payload); err != nil {
+				slog.Error("error while writing message", "error", err)
 				break
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -56,6 +57,7 @@ const (
 
 	defaultMetricsPath     = "/metrics"
 	defaultHealthcheckPath = "/healthz"
+	websocketPathPrefix    = "/ws"
 )
 
 func Get(path string) (Config, error) {
@@ -117,11 +119,23 @@ func validateConfig(cfg Config) error {
 	if len(cfg.HTTPEndpoints) == 0 {
 		return fmt.Errorf("no endpoints defined in the config")
 	}
+	if cfg.Metrics.Enabled {
+		if err := validateEndpointPath(cfg.Metrics.Path); err != nil {
+			return fmt.Errorf("invalid metrics path %q: %w", cfg.Metrics.Path, err)
+		}
+	}
 
 	paths := make(map[string]struct{}, len(cfg.HTTPEndpoints))
 	for _, ep := range cfg.HTTPEndpoints {
+		if err := validateEndpointPath(ep.Path); err != nil {
+			return fmt.Errorf("invalid HTTP endpoint path %q: %w", ep.Path, err)
+		}
+
 		if ep.ErrorRate < 0 || ep.ErrorRate > 1 {
 			return fmt.Errorf("endpoint error rate must be between 0.0 and 1.0 inclusive")
+		}
+		if ep.Slowness.Min < 0 || ep.Slowness.P95 < 0 || ep.Slowness.Max < 0 {
+			return fmt.Errorf("endpoint slowness durations cannot be negative")
 		}
 
 		if _, ok := paths[ep.Path]; ok {
@@ -140,10 +154,6 @@ func validateConfig(cfg Config) error {
 		if cfg.Metrics.Enabled && ep.Path == cfg.Metrics.Path {
 			return fmt.Errorf("endpoint path cannot be equal to prometheus metrics path")
 		}
-
-		if ep.Path == defaultHealthcheckPath {
-			return fmt.Errorf("endpoint path overlaps with healthcheck path")
-		}
 	}
 
 	if len(cfg.WSEndpoints) > 1 {
@@ -154,6 +164,30 @@ func validateConfig(cfg Config) error {
 		if ep.Type != "echo" {
 			return fmt.Errorf("only echo websocket endpoints are supported now")
 		}
+
+		if err := validateEndpointPath(ep.Path); err != nil {
+			return fmt.Errorf("invalid WebSocket endpoint path %q: %w", ep.Path, err)
+		}
+	}
+
+	return nil
+}
+
+func validateEndpointPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	if !strings.HasPrefix(path, "/") {
+		return fmt.Errorf("path must start with /")
+	}
+	if path == "/" {
+		return fmt.Errorf("path is reserved")
+	}
+	if path == defaultHealthcheckPath {
+		return fmt.Errorf("path is reserved for healthcheck")
+	}
+	if path == websocketPathPrefix || strings.HasPrefix(path, websocketPathPrefix+"/") {
+		return fmt.Errorf("path is reserved for WebSocket endpoints")
 	}
 
 	return nil

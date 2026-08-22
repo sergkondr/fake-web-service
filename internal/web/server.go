@@ -22,7 +22,7 @@ func New(cfg config.Config) chi.Router {
 
 	var endpoints strings.Builder
 	for _, endpoint := range cfg.HTTPEndpoints {
-		r.Route(endpoint.Path, func(r chi.Router) {
+		r.Group(func(r chi.Router) {
 			if !endpoint.DoNotLog {
 				r.Use(logger())
 			}
@@ -31,7 +31,7 @@ func New(cfg config.Config) chi.Router {
 			}
 			r.Use(decelerator(endpoint))
 			r.Use(errorInjector(endpoint))
-			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			r.Get(endpoint.Path, func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte(fmt.Sprintf("success: %s%s\n", cfg.Hostname, endpoint.Path)))
 			})

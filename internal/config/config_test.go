@@ -1,15 +1,17 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
 
 func Test_validateConfig(t *testing.T) {
 	tests := []struct {
-		name    string
-		cfg     Config
-		wantErr bool
+		name            string
+		cfg             Config
+		wantErr         bool
+		wantErrContains string
 	}{
 		{
 			name: "valid config",
@@ -57,24 +59,34 @@ func Test_validateConfig(t *testing.T) {
 		},
 		{
 			name: "invalid config, multiple ws endpoints",
-			cfg: Config{ListenAddr: ":8080", WSEndpoints: []WSEndpoint{
-				{
-					Path: "/echo", Type: "echo",
+			cfg: Config{
+				ListenAddr:    ":8080",
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+				WSEndpoints: []WSEndpoint{
+					{
+						Path: "/echo", Type: "echo",
+					},
+					{
+						Path: "/random", Type: "random",
+					},
 				},
-				{
-					Path: "/random", Type: "random",
-				},
-			}},
-			wantErr: true,
+			},
+			wantErr:         true,
+			wantErrContains: "only one websocket endpoint",
 		},
 		{
 			name: "invalid config, unknown endpoint type",
-			cfg: Config{ListenAddr: ":8080", WSEndpoints: []WSEndpoint{
-				{
-					Path: "/echo", Type: "qwerty",
+			cfg: Config{
+				ListenAddr:    ":8080",
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+				WSEndpoints: []WSEndpoint{
+					{
+						Path: "/echo", Type: "qwerty",
+					},
 				},
-			}},
-			wantErr: true,
+			},
+			wantErr:         true,
+			wantErrContains: "only echo websocket endpoints",
 		},
 		{
 			name: "invalid config, endpoint path overlaps metric path",
@@ -82,11 +94,12 @@ func Test_validateConfig(t *testing.T) {
 				ListenAddr: ":8080", Metrics: Metrics{Enabled: true, Path: "/metrics"},
 				HTTPEndpoints: []HTTPEndpoint{
 					{
-						Path: "/metrics", ErrorRate: 10.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
+						Path: "/metrics", ErrorRate: 0.0, Slowness: Slowness{1 * time.Second, 3 * time.Second, 2 * time.Second},
 					},
 				},
 			},
-			wantErr: true,
+			wantErr:         true,
+			wantErrContains: "prometheus metrics path",
 		},
 		{
 			name: "valid config, monitoring enabled",
@@ -111,12 +124,98 @@ func Test_validateConfig(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name:    "invalid config, empty endpoint path",
+			cfg:     Config{HTTPEndpoints: []HTTPEndpoint{{Path: ""}}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid config, endpoint path without slash",
+			cfg:     Config{HTTPEndpoints: []HTTPEndpoint{{Path: "test"}}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid config, root endpoint path",
+			cfg:     Config{HTTPEndpoints: []HTTPEndpoint{{Path: "/"}}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid config, endpoint path overlaps websocket root",
+			cfg:     Config{HTTPEndpoints: []HTTPEndpoint{{Path: "/ws"}}},
+			wantErr: true,
+		},
+		{
+			name:    "invalid config, endpoint path overlaps websocket endpoint",
+			cfg:     Config{HTTPEndpoints: []HTTPEndpoint{{Path: "/ws/echo"}}},
+			wantErr: true,
+		},
+		{
+			name: "invalid config, empty websocket path",
+			cfg: Config{
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+				WSEndpoints:   []WSEndpoint{{Path: "", Type: "echo"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid config, websocket path without slash",
+			cfg: Config{
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+				WSEndpoints:   []WSEndpoint{{Path: "echo", Type: "echo"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid config, websocket root path",
+			cfg: Config{
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+				WSEndpoints:   []WSEndpoint{{Path: "/", Type: "echo"}},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid config, metrics path is reserved",
+			cfg: Config{
+				Metrics:       Metrics{Enabled: true, Path: "/ws"},
+				HTTPEndpoints: []HTTPEndpoint{{Path: "/test"}},
+			},
+			wantErr:         true,
+			wantErrContains: "reserved for WebSocket endpoints",
+		},
+		{
+			name: "invalid config, negative minimum slowness",
+			cfg: Config{HTTPEndpoints: []HTTPEndpoint{{
+				Path: "/test", Slowness: Slowness{Min: -time.Second, P95: time.Second, Max: 2 * time.Second},
+			}}},
+			wantErr:         true,
+			wantErrContains: "cannot be negative",
+		},
+		{
+			name: "invalid config, negative p95 slowness",
+			cfg: Config{HTTPEndpoints: []HTTPEndpoint{{
+				Path: "/test", Slowness: Slowness{Min: -2 * time.Second, P95: -time.Second, Max: 0},
+			}}},
+			wantErr:         true,
+			wantErrContains: "cannot be negative",
+		},
+		{
+			name: "invalid config, negative maximum slowness",
+			cfg: Config{HTTPEndpoints: []HTTPEndpoint{{
+				Path: "/test", Slowness: Slowness{Min: -3 * time.Second, P95: -2 * time.Second, Max: -time.Second},
+			}}},
+			wantErr:         true,
+			wantErrContains: "cannot be negative",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateConfig(tt.cfg); (err != nil) != tt.wantErr {
+			err := validateConfig(tt.cfg)
+			if (err != nil) != tt.wantErr {
 				t.Errorf("validateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErrContains != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErrContains)) {
+				t.Errorf("validateConfig() error = %v, want error containing %q", err, tt.wantErrContains)
 			}
 		})
 	}

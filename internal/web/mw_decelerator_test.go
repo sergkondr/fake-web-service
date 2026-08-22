@@ -40,6 +40,18 @@ func TestGetDelayReturnsValueWithinConfiguredRange(t *testing.T) {
 			p95:  10 * time.Millisecond,
 			max:  10 * time.Millisecond,
 		},
+		{
+			name: "sub-millisecond range",
+			min:  time.Nanosecond,
+			p95:  2 * time.Nanosecond,
+			max:  3 * time.Nanosecond,
+		},
+		{
+			name: "zero delay",
+			min:  0,
+			p95:  0,
+			max:  0,
+		},
 	}
 
 	for _, tt := range tests {

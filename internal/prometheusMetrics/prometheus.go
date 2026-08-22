@@ -57,8 +57,9 @@ func (m *MetricsServer) MiddlewareHandler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		m.requestsTotal.WithLabelValues(r.RequestURI, r.Method, strconv.Itoa(ww.Status())).Inc()
-		m.requestDuration.WithLabelValues(r.RequestURI, r.Method, strconv.Itoa(ww.Status())).Observe(time.Since(start).Seconds())
+		uri := r.URL.Path
+		m.requestsTotal.WithLabelValues(uri, r.Method, strconv.Itoa(ww.Status())).Inc()
+		m.requestDuration.WithLabelValues(uri, r.Method, strconv.Itoa(ww.Status())).Observe(time.Since(start).Seconds())
 	}
 
 	return http.HandlerFunc(fn)
