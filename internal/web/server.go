@@ -8,21 +8,25 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/sergkondr/fake-web-service/internal/config"
 	"github.com/sergkondr/fake-web-service/internal/prometheusMetrics"
+	"github.com/sergkondr/fake-web-service/internal/web/middleware"
+	"github.com/sergkondr/fake-web-service/internal/web/ws"
 )
 
 func New(cfg config.Config) (chi.Router, error) {
 	r := chi.NewRouter()
 
-	var prometheusMWHandler func(next http.Handler) http.Handler
+	var httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler
+	var webSocketObserver ws.Observer
 	if cfg.Metrics.Enabled {
 		metrics := prometheusMetrics.New("fakesvc")
 		r.Handle(cfg.Metrics.Path, metrics.MetricsHandler())
-		prometheusMWHandler = metrics.MiddlewareHandler
+		httpMetricsMiddleware = metrics.EndpointMiddleware
+		webSocketObserver = metrics.WebSocketObserver()
 	}
 
 	var endpoints strings.Builder
 	for _, endpoint := range cfg.Endpoints {
-		if err := registerEndpoint(r, cfg, endpoint, prometheusMWHandler); err != nil {
+		if err := registerEndpoint(r, cfg, endpoint, httpMetricsMiddleware, webSocketObserver); err != nil {
 			return nil, err
 		}
 		if !endpoint.Hidden {
@@ -47,22 +51,31 @@ func registerEndpoint(
 	r chi.Router,
 	cfg config.Config,
 	endpoint config.Endpoint,
-	prometheusMWHandler func(next http.Handler) http.Handler,
+	httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler,
+	webSocketObserver ws.Observer,
 ) error {
 	switch endpoint.Type {
 	case config.EndpointTypeHTTP:
 		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, prometheusMWHandler)
+			useEndpointMiddleware(r, endpoint, httpMetricsMiddleware)
 			handler := staticHTTPHandler(cfg.Hostname, endpoint)
 			r.MethodFunc(http.MethodGet, endpoint.Path, handler)
 			r.MethodFunc(http.MethodHead, endpoint.Path, handler)
 		})
 	case config.EndpointTypeWSEcho:
 		r.Group(func(r chi.Router) {
-			useEndpointMiddleware(r, endpoint, prometheusMWHandler)
-			r.HandleFunc(endpoint.Path, wsHandlerEcho(cfg.Hostname))
+			useEndpointMiddleware(r, endpoint, nil)
+			r.HandleFunc(endpoint.Path, ws.Echo(cfg.Hostname, endpoint.Path, webSocketObserver))
 		})
-	case config.EndpointTypeProxy, config.EndpointTypeWSStream:
+	case config.EndpointTypeWSStream:
+		if endpoint.Stream == nil {
+			return fmt.Errorf("endpoint %q of type %q has no stream config", endpoint.Path, endpoint.Type)
+		}
+		r.Group(func(r chi.Router) {
+			useEndpointMiddleware(r, endpoint, nil)
+			r.HandleFunc(endpoint.Path, ws.Stream(cfg.Hostname, endpoint.Path, endpoint.Stream.Interval, webSocketObserver))
+		})
+	case config.EndpointTypeProxy:
 		return fmt.Errorf("endpoint %q of type %q is not implemented yet", endpoint.Path, endpoint.Type)
 	default:
 		return fmt.Errorf("endpoint %q has unsupported type %q", endpoint.Path, endpoint.Type)
@@ -74,16 +87,16 @@ func registerEndpoint(
 func useEndpointMiddleware(
 	r chi.Router,
 	endpoint config.Endpoint,
-	prometheusMWHandler func(next http.Handler) http.Handler,
+	httpMetricsMiddleware func(endpoint, endpointType string) func(next http.Handler) http.Handler,
 ) {
 	if !endpoint.DoNotLog {
-		r.Use(logger())
+		r.Use(middleware.Logger(endpoint.Path, string(endpoint.Type)))
 	}
-	if prometheusMWHandler != nil {
-		r.Use(prometheusMWHandler)
+	if httpMetricsMiddleware != nil {
+		r.Use(httpMetricsMiddleware(endpoint.Path, string(endpoint.Type)))
 	}
-	r.Use(decelerator(endpoint.Chaos))
-	r.Use(errorInjector(endpoint.Chaos))
+	r.Use(middleware.Decelerator(endpoint.Chaos))
+	r.Use(middleware.ErrorInjector(endpoint.Chaos))
 }
 
 func staticHTTPHandler(hostname string, endpoint config.Endpoint) http.HandlerFunc {

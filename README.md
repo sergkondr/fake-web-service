@@ -53,6 +53,14 @@ endpoints:
     description: WebSocket echo   # optional
     path: /ws/echo                # required, final public path
 
+  - name: time                    # optional
+    type: ws/stream               # required
+    description: Time stream      # optional
+    path: /ws/time                # required, final public path
+    stream:
+      interval: 1s                # required, must be greater than zero
+      format: json                # optional, json is the only supported format
+
   - name: Some endpoint             # optional, used in endpoint list on /
     type: http                       # required
     description: Simple description # optional, used in endpoint list on /
@@ -68,3 +76,12 @@ endpoints:
 ```
 
 The configuration parser is strict. Legacy `http_endpoints`, `ws_endpoints`, and `slowness` fields are not supported.
+
+`ws/echo` accepts text frames and returns a JSON text frame. Binary frames are rejected with WebSocket close code `1003`.
+`ws/stream` sends a JSON message immediately after the handshake and then every configured interval. Each message contains `backend`, `endpoint`, an increasing `sequence`, and a UTC `timestamp` in RFC3339Nano format.
+
+### Metrics
+
+When `metrics.enabled` is set, HTTP metrics use only bounded labels: the configured `endpoint`, endpoint `type`, request `method`, and `status_code`. Request URL, query string, client address, and endpoint name are never labels.
+
+WebSocket endpoints expose active/opened/closed connection metrics, sent/received message counters, and read/write error counters. WebSocket connections are intentionally excluded from HTTP request-duration metrics.

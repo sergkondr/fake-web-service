@@ -1,4 +1,4 @@
-package web
+package middleware
 
 import (
 	"net/http"
@@ -16,42 +16,12 @@ func TestGetDelayReturnsValueWithinConfiguredRange(t *testing.T) {
 		p95  time.Duration
 		max  time.Duration
 	}{
-		{
-			name: "regular range",
-			min:  10 * time.Millisecond,
-			p95:  50 * time.Millisecond,
-			max:  100 * time.Millisecond,
-		},
-		{
-			name: "min equals p95",
-			min:  10 * time.Millisecond,
-			p95:  10 * time.Millisecond,
-			max:  100 * time.Millisecond,
-		},
-		{
-			name: "p95 equals max",
-			min:  10 * time.Millisecond,
-			p95:  100 * time.Millisecond,
-			max:  100 * time.Millisecond,
-		},
-		{
-			name: "all values equal",
-			min:  10 * time.Millisecond,
-			p95:  10 * time.Millisecond,
-			max:  10 * time.Millisecond,
-		},
-		{
-			name: "sub-millisecond range",
-			min:  time.Nanosecond,
-			p95:  2 * time.Nanosecond,
-			max:  3 * time.Nanosecond,
-		},
-		{
-			name: "zero delay",
-			min:  0,
-			p95:  0,
-			max:  0,
-		},
+		{name: "regular range", min: 10 * time.Millisecond, p95: 50 * time.Millisecond, max: 100 * time.Millisecond},
+		{name: "min equals p95", min: 10 * time.Millisecond, p95: 10 * time.Millisecond, max: 100 * time.Millisecond},
+		{name: "p95 equals max", min: 10 * time.Millisecond, p95: 100 * time.Millisecond, max: 100 * time.Millisecond},
+		{name: "all values equal", min: 10 * time.Millisecond, p95: 10 * time.Millisecond, max: 10 * time.Millisecond},
+		{name: "sub-millisecond range", min: time.Nanosecond, p95: 2 * time.Nanosecond, max: 3 * time.Nanosecond},
+		{name: "zero delay", min: 0, p95: 0, max: 0},
 	}
 
 	for _, tt := range tests {
@@ -73,7 +43,7 @@ func TestDeceleratorCallsNextHandler(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := decelerator(chaosWithLatency(0))(next)
+	handler := Decelerator(chaosWithLatency(0))(next)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/test", nil)
 
@@ -88,11 +58,5 @@ func TestDeceleratorCallsNextHandler(t *testing.T) {
 }
 
 func chaosWithLatency(delay time.Duration) config.Chaos {
-	return config.Chaos{
-		Latency: &config.Latency{
-			Min: delay,
-			P95: delay,
-			Max: delay,
-		},
-	}
+	return config.Chaos{Latency: &config.Latency{Min: delay, P95: delay, Max: delay}}
 }
