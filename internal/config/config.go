@@ -11,39 +11,62 @@ import (
 )
 
 type Config struct {
-	Hostname string
+	Hostname string `yaml:"-"`
 
-	ListenAddr    string         `yaml:"listen"`
-	HTTPEndpoints []HTTPEndpoint `yaml:"http_endpoints"`
-	WSEndpoints   []WSEndpoint   `yaml:"ws_endpoints"`
-
-	Metrics Metrics `yaml:"metrics,omitempty"`
+	ListenAddr string     `yaml:"listen"`
+	Endpoints  []Endpoint `yaml:"endpoints"`
+	Metrics    Metrics    `yaml:"metrics,omitempty"`
 }
 
-type HTTPEndpoint struct {
-	Name        string `yaml:"name,omitempty"`
-	Description string `yaml:"description,omitempty"`
+type EndpointType string
 
-	Path      string   `yaml:"path"`
-	ErrorRate float64  `yaml:"error_rate"`
-	Slowness  Slowness `yaml:"slowness"`
+const (
+	EndpointTypeHTTP     EndpointType = "http"
+	EndpointTypeProxy    EndpointType = "proxy"
+	EndpointTypeWSEcho   EndpointType = "ws/echo"
+	EndpointTypeWSStream EndpointType = "ws/stream"
+)
 
-	Hidden   bool `yaml:"hidden,omitempty"`
-	DoNotLog bool `yaml:"do_not_log,omitempty"`
+type Endpoint struct {
+	Name        string       `yaml:"name,omitempty"`
+	Description string       `yaml:"description,omitempty"`
+	Type        EndpointType `yaml:"type"`
+	Path        string       `yaml:"path"`
+	Hidden      bool         `yaml:"hidden,omitempty"`
+	DoNotLog    bool         `yaml:"do_not_log,omitempty"`
+
+	Chaos    Chaos           `yaml:"chaos,omitempty"`
+	Response *ResponseConfig `yaml:"response,omitempty"`
+	Backend  *BackendConfig  `yaml:"backend,omitempty"`
+	Stream   *StreamConfig   `yaml:"stream,omitempty"`
 }
 
-type Slowness struct {
+type Chaos struct {
+	ErrorRate   float64  `yaml:"error_rate,omitempty"`
+	ErrorStatus int      `yaml:"error_status,omitempty"`
+	Latency     *Latency `yaml:"latency,omitempty"`
+}
+
+type Latency struct {
 	Min time.Duration `yaml:"min"`
 	Max time.Duration `yaml:"max"`
 	P95 time.Duration `yaml:"p95"`
 }
 
-type WSEndpoint struct {
-	Name        string `yaml:"name,omitempty"`
-	Description string `yaml:"description,omitempty"`
+type ResponseConfig struct {
+	Status  int               `yaml:"status,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
+	Body    string            `yaml:"body,omitempty"`
+}
 
-	Path string `yaml:"path"`
-	Type string `yaml:"type"`
+type BackendConfig struct {
+	URL          string        `yaml:"url"`
+	Timeout      time.Duration `yaml:"timeout,omitempty"`
+	PreserveHost bool          `yaml:"preserve_host,omitempty"`
+}
+
+type StreamConfig struct {
+	Interval time.Duration `yaml:"interval"`
 }
 
 type Metrics struct {
@@ -56,6 +79,9 @@ const (
 
 	defaultMetricsPath     = "/metrics"
 	defaultHealthcheckPath = "/healthz"
+	defaultErrorStatus     = 500
+	defaultBackendTimeout  = 10 * time.Second
+	defaultResponseStatus  = 200
 )
 
 func Get(path string) (Config, error) {
@@ -63,7 +89,6 @@ func Get(path string) (Config, error) {
 	if err != nil {
 		return config, fmt.Errorf("could not parse config: %w", err)
 	}
-
 	hostname, err := os.Hostname()
 	if err != nil {
 		slog.Error("could not get hostname:" + err.Error())
@@ -83,78 +108,62 @@ func parseFileConfig(path string) (Config, error) {
 	}
 	defer file.Close()
 
-	fileData, err := io.ReadAll(file)
-	if err != nil {
-		return config, fmt.Errorf("could not read config file: %w", err)
-	}
+	return parseConfig(file)
+}
 
-	err = yaml.Unmarshal(fileData, &config)
-	if err != nil {
+func parseConfig(reader io.Reader) (Config, error) {
+	var config Config
+	decoder := yaml.NewDecoder(reader)
+	decoder.KnownFields(true)
+
+	if err := decoder.Decode(&config); err != nil {
 		return config, fmt.Errorf("could not parse config file: %w", err)
 	}
 
-	if config.ListenAddr == "" {
-		config.ListenAddr = defaultListenAddr
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return config, fmt.Errorf("multiple YAML documents are not supported")
+		}
+		return config, fmt.Errorf("could not parse config file: %w", err)
+	}
+
+	usedDefaultListenAddress := config.ListenAddr == ""
+	applyDefaults(&config)
+
+	if usedDefaultListenAddress {
 		slog.Info("using default listen address: " + config.ListenAddr)
 	}
 
 	if config.Metrics.Enabled {
-		if config.Metrics.Path == "" {
-			config.Metrics.Path = defaultMetricsPath
-		}
-
 		slog.Info("prometheus metrics enabled on " + config.Metrics.Path)
 	}
 
-	if err = validateConfig(config); err != nil {
+	if err := validateConfig(config); err != nil {
 		return config, fmt.Errorf("can't validate config: %w", err)
 	}
 
 	return config, nil
 }
 
-func validateConfig(cfg Config) error {
-	if len(cfg.HTTPEndpoints) == 0 {
-		return fmt.Errorf("no endpoints defined in the config")
+func applyDefaults(config *Config) {
+	if config.ListenAddr == "" {
+		config.ListenAddr = defaultListenAddr
+	}
+	if config.Metrics.Enabled && config.Metrics.Path == "" {
+		config.Metrics.Path = defaultMetricsPath
 	}
 
-	paths := make(map[string]struct{}, len(cfg.HTTPEndpoints))
-	for _, ep := range cfg.HTTPEndpoints {
-		if ep.ErrorRate < 0 || ep.ErrorRate > 1 {
-			return fmt.Errorf("endpoint error rate must be between 0.0 and 1.0 inclusive")
+	for i := range config.Endpoints {
+		endpoint := &config.Endpoints[i]
+		if endpoint.Chaos.ErrorStatus == 0 {
+			endpoint.Chaos.ErrorStatus = defaultErrorStatus
 		}
-
-		if _, ok := paths[ep.Path]; ok {
-			return fmt.Errorf("duplicate endpoint path: %s", ep.Path)
+		if endpoint.Response != nil && endpoint.Response.Status == 0 {
+			endpoint.Response.Status = defaultResponseStatus
 		}
-		paths[ep.Path] = struct{}{}
-
-		if ep.Slowness.Min > ep.Slowness.Max || ep.Slowness.Min > ep.Slowness.P95 {
-			return fmt.Errorf("slowness min cannot be greater than max or p95")
-		}
-
-		if ep.Slowness.P95 > ep.Slowness.Max {
-			return fmt.Errorf("slowness p95 cannot be greater than max")
-		}
-
-		if cfg.Metrics.Enabled && ep.Path == cfg.Metrics.Path {
-			return fmt.Errorf("endpoint path cannot be equal to prometheus metrics path")
-		}
-
-		if ep.Path == defaultHealthcheckPath {
-			return fmt.Errorf("endpoint path overlaps with healthcheck path")
+		if endpoint.Backend != nil && endpoint.Backend.Timeout == 0 {
+			endpoint.Backend.Timeout = defaultBackendTimeout
 		}
 	}
-
-	if len(cfg.WSEndpoints) > 1 {
-		return fmt.Errorf("only one websocket endpoint is supported now")
-	}
-
-	for _, ep := range cfg.WSEndpoints {
-		if ep.Type != "echo" {
-			return fmt.Errorf("only echo websocket endpoints are supported now")
-		}
-	}
-
-	return nil
 }

@@ -2,66 +2,108 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT%202.0-blue.svg)](https://github.com/sergkondr/fake-web-service/blob/main/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/sergkondr/fake-web-service.svg)](https://github.com/sergkondr/fake-web-service/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/sergkondr/fake-web-service)](https://goreportcard.com/report/github.com/sergkondr/fake-web-service)
-[![Pulls](https://img.shields.io/docker/pulls/sergkondr/fakesvc.svg)](https://hub.docker.com/r/sergkondr/fakesvc)
 [![Go](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml/badge.svg)](https://github.com/sergkondr/fake-web-service/actions/workflows/go.yml)
 
-This simple web service is made for testing purposes. 
-It has different endpoints that return various results, either a successful response or an error, 
-with different delays. You can configure the endpoints, the delays, and the error rate for each endpoint independently.  
+`fake-web-service` is a configurable service for HTTP and WebSocket testing. It can return static HTTP responses, echo and stream WebSocket messages, or proxy an upstream service while injecting latency and errors.
 
-### Deploy
+## Run
 
+Go 1.25 or newer is required.
+
+```shell
+go run ./cmd --config examples/config.yaml
+curl http://localhost:8080/
 ```
+
+The process exits with a non-zero status if the configuration cannot be loaded or the server cannot listen on the configured address. `SIGINT` and `SIGTERM` stop it gracefully; in-flight requests have up to 10 seconds to finish.
+
+Run the supplied development configuration in Docker:
+
+```shell
+docker compose up --build
+```
+
+Deploy the Kubernetes example after replacing its image tag with the version you want to run:
+
+```shell
 kubectl apply -f deployments/manifests/kubernetes-deploy.yaml
 ```
 
-###### Pay attention
+## Configuration
 
-For development and testing purposes, I use docker images with the `dev` tag. 
-But I also publish images with tag matching the release version, like `0.1.0`. You can find the full list of tags [on Docker Hub](https://hub.docker.com/r/sergkondr/fakesvc/tags)
+The parser is strict: unknown fields, legacy `http_endpoints`, `ws_endpoints`, and `slowness` are rejected. `path` is always the final public path; no endpoint type adds a hidden prefix.
 
-### Usage
+```yaml
+listen: 0.0.0.0:8080 # optional; default: 0.0.0.0:8080
+
+metrics:
+  enabled: true
+  path: /metrics # optional; default: /metrics when enabled
+
+endpoints:
+  - name: Good endpoint
+    type: http
+    description: Static HTTP response
+    path: /good
+    response: # optional; status defaults to 200
+      status: 201
+      headers:
+        Content-Type: text/plain
+        X-Example: configured
+      body: created
+    chaos: # optional; applies before the handler
+      error_rate: 0.3 # range: 0.0–1.0
+      error_status: 503 # optional; default: 500
+      latency:
+        min: 10ms
+        p95: 50ms
+        max: 100ms
+
+  - name: Upstream service
+    type: proxy
+    path: /service
+    backend:
+      url: https://service.example.com/api/v1
+      timeout: 10s # optional; default: 10s
+      preserve_host: false
+    chaos:
+      error_rate: 0.1
+
+  - name: Echo
+    type: ws/echo
+    path: /ws/echo
+
+  - name: Clock stream
+    type: ws/stream
+    path: /ws/time
+    stream:
+      interval: 1s
+```
+
+All endpoint types support `name`, `description`, `hidden`, `do_not_log`, and `chaos`. `hidden` excludes an endpoint from `/`; `do_not_log` disables its access log.
+
+`http` supports `GET` and `HEAD`. `proxy` supports every HTTP method and owns its configured path plus all nested paths. With `path: /service` and `backend.url: https://service.example.com/api/v1`, a request to `/service/users?id=42` reaches `/api/v1/users?id=42` upstream. Network and timeout errors return `502 Bad Gateway`.
+
+`ws/echo` accepts text frames and returns a JSON text frame. Binary frames are closed with code `1003`. `ws/stream` sends a JSON message immediately after the handshake and then at the configured interval. It includes the backend hostname, endpoint, sequence, and an RFC3339Nano UTC timestamp.
+
+## Metrics and operations
+
+Set `metrics.enabled: true` to expose Prometheus metrics. HTTP labels are bounded to configured `endpoint`, endpoint `type`, request `method`, and `status_code`; URL subpaths, query parameters, client addresses, and endpoint names are never labels. Proxy upstream duration and errors use only the configured public endpoint label. WebSocket endpoints export connection, message, and read/write-error metrics.
+
+The HTTP server has 5-second header, 30-second read/write, and 2-minute idle timeouts. WebSocket handlers maintain their own read/write deadlines and ping/pong policy after upgrade.
+
+## Development and release
 
 ```shell
-➜ curl localhost:8080/
-Available endpoints:
-- /good - Good endpoint: Fast enough, no errors at all
-- /bad - Bad endpoint: 30% of requests fails with 500 error
-- /slow - Slow endpoint: Sometimes it fails, but it is always slow
-
-➜ time curl localhost:8080/good
-success: /good
-curl localhost:8080/good  0.00s user 0.01s system 4% cpu 0.230 total
-
-➜ time curl localhost:8080/slow
-success: /slow
-curl localhost:8080/slow  0.01s user 0.01s system 0% cpu 2.822 total
+make fmt
+make lint
+make test
+make test-race
+make build APP_VERSION=0.2.0
+make docker APP_VERSION=0.2.0
+make docker-multiarch APP_VERSION=0.2.0
 ```
 
-### Configuration
+`make docker` builds a local image. `make docker-multiarch` builds and pushes `linux/amd64` and `linux/arm64`; set `IMAGE` or `PLATFORMS` to override their defaults.
 
-[Here](./examples/config.yaml) you can find the config file that I use for development purposes. I believe it is the most detailed configuration possible.
-
-For now, config implements the following options:
-```yaml
-listen: 127.0.0.1:8080  # optional, default value = 0.0.0.0:8080
-
-ws_endpoints:                     # only 1 ws endpoint is supported now
-  - name: echo                    # optional
-    description: WebSocket echo   # optional
-    path: /echo                   # required, but will be rewrited to /ws/{{ path }} 
-    type: echo                    # required, only "echo" is supported now
-
-http_endpoints:
-  - name: Some endpoint             # optional, used in endpoint list on /
-    description: Simple description # optional, used in endpoint list on /
-    path: /path                     # required
-    error_rate: 0.0                 # optional, in range [0.0, 1.0]
-    hidden: true                    # optional, do not display on request to /
-    do_not_log: true                # optional, do not write access logs
-    slowness:                       # required
-      min: 10ms                     # required, time duration, should be less than p95
-      p95: 50ms                     # required, time duration, should be less than max
-      max: 100ms                    # required, time duration
-```
+See [CHANGELOG.md](CHANGELOG.md) for release notes and [0.2.0.md](0.2.0.md) for the 0.2.0 design and implementation checklist.

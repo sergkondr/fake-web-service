@@ -3,40 +3,58 @@ metrics:
   enabled: true
   path: /metrics
 
-ws_endpoints:
+endpoints:
   - name: echo
+    type: ws/echo
     description: Basic WebSocket echo endpoint
-    path: /echo
-    type: echo
-
-http_endpoints:
+    path: /ws/echo
+  - name: time
+    type: ws/stream
+    description: Sends the current time every second
+    path: /ws/time
+    stream:
+      interval: 1s
   - name: Good endpoint
+    type: http
     description: Fast enough, no errors at all
     path: /good
-    error_rate: 0.0
-    slowness:
-      min: 10ms
-      p95: 50ms
-      max: 100ms
+    chaos:
+      error_rate: 0.0
+      latency:
+        min: 10ms
+        p95: 50ms
+        max: 100ms
   - name: Bad endpoint
+    type: http
     description: 30% of requests fails with 500 error
     path: /bad
-    error_rate: 0.3
-    slowness:
-      min: 300ms
-      p95: 3500ms
-      max: 5s
+    chaos:
+      error_rate: 0.3
+      latency:
+        min: 300ms
+        p95: 3500ms
+        max: 5s
   - name: Slow good endpoint
+    type: http
     description: Always slow, but no errors
     path: /slow
-    error_rate: 0.0
-    slowness:
-      min: 1s
-      p95: 5s
-      max: 10s
-  - path: /your-service
-    error_rate: 0.5
-    slowness:
-      min: 1s
-      p95: 5s
-      max: 10s
+    chaos:
+      error_rate: 0.0
+      latency:
+        min: 1s
+        p95: 5s
+        max: 10s
+  - name: Proxy endpoint
+    type: proxy
+    description: Sends requests to an upstream backend with configurable chaos
+    path: /your-service
+    backend:
+      url: https://service.example.com/api/v1
+      timeout: 10s
+      preserve_host: false
+    chaos:
+      error_rate: 0.5
+      latency:
+        min: 1s
+        p95: 5s
+        max: 10s

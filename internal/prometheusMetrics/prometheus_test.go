@@ -7,68 +7,74 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sergkondr/fake-web-service/internal/web/ws"
 )
 
-func Test_prometheusMW_handler(t *testing.T) {
-	tests := []struct {
-		name        string
-		requestPath string
-		wantBody    string
-		wantErr     bool
-	}{
-		{
-			name:        "test request #1",
-			requestPath: "/test",
-			wantBody:    "Test",
-			wantErr:     false,
-		},
-		{
-			name:        "request to metrics #1",
-			requestPath: "/metrics",
-			wantBody:    `fakesvc_request_count{method="GET",status_code="200",uri=""} 1`,
-			wantErr:     false,
-		},
-		{
-			name:        "test request #2",
-			requestPath: "/test",
-			wantBody:    "Test",
-			wantErr:     false,
-		},
-		{
-			name:        "request to metrics #2",
-			requestPath: "/metrics",
-			wantBody:    `fakesvc_request_count{method="GET",status_code="200",uri=""} 2`,
-			wantErr:     false,
-		},
-	}
-
+func TestPrometheusMiddlewareGroupsRequestsByPath(t *testing.T) {
 	prom := New("fakesvc")
 
-	r := chi.NewRouter()
-	r.Handle("/metrics", prom.MetricsHandler())
-
-	r.Route("/", func(r chi.Router) {
-		r.Use(prom.MiddlewareHandler)
+	router := chi.NewRouter()
+	router.Handle("/metrics", prom.MetricsHandler())
+	router.Group(func(r chi.Router) {
+		r.Use(prom.EndpointMiddleware("/test", "http"))
 		r.Get("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Test"))
+			_, _ = w.Write([]byte("Test"))
 		})
 	})
 
+	for _, target := range []string{
+		"/test?request_id=123",
+		"/test?request_id=456",
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+
+		router.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("request %q returned status %d, want %d", target, recorder.Code, http.StatusOK)
+		}
+	}
+
 	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	router.ServeHTTP(recorder, request)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodGet, tt.requestPath, nil)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("request error = %v, wantErr %v", err, tt.wantErr)
-			}
+	body := recorder.Body.String()
+	wantCounter := `fakesvc_http_requests_total{endpoint="/test",method="GET",status_code="200",type="http"} 2`
+	if !strings.Contains(body, wantCounter) {
+		t.Fatalf("metrics body does not contain %q:\n%s", wantCounter, body)
+	}
+	if strings.Contains(body, "request_id") {
+		t.Fatalf("metrics body contains query parameter and can create high-cardinality series:\n%s", body)
+	}
+}
 
-			r.ServeHTTP(recorder, req)
-			body := recorder.Body.String()
-			if !strings.Contains(body, tt.wantBody) {
-				t.Errorf("Expected response body to contain: %s\n, but got: %s", tt.wantBody, body)
-			}
-		})
+func TestWebSocketMetricsUseConfiguredEndpoint(t *testing.T) {
+	prom := New("fakesvc")
+	observer := prom.WebSocketObserver("/time")
+
+	observer(ws.ConnectionOpened)
+	observer(ws.MessageSent)
+	observer(ws.MessageReceived)
+	observer(ws.ReadError)
+	observer(ws.ConnectionClosed)
+
+	recorder := httptest.NewRecorder()
+	prom.MetricsHandler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := recorder.Body.String()
+
+	for _, want := range []string{
+		`fakesvc_websocket_connections_active{endpoint="/time"} 0`,
+		`fakesvc_websocket_connections_total{endpoint="/time",state="closed"} 1`,
+		`fakesvc_websocket_connections_total{endpoint="/time",state="opened"} 1`,
+		`fakesvc_websocket_messages_total{direction="received",endpoint="/time"} 1`,
+		`fakesvc_websocket_messages_total{direction="sent",endpoint="/time"} 1`,
+		`fakesvc_websocket_errors_total{endpoint="/time",operation="read"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics body does not contain %q:\n%s", want, body)
+		}
 	}
 }
